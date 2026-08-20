@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamGrid - Compartilhamento de Tela Multi-Transmissão</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        
+        <!-- Stream Header -->
+        <header class="stream-header">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <div class="brand-title">
+                    <h1>StreamGrid</h1>
+                    <span class="badge-hd">1080p 60FPS</span>
+                </div>
+            </div>
+
+            <!-- Room Info & Actions -->
+            <div class="room-info-bar">
+                <div class="info-pill">
+                    <i class="fa-solid fa-users"></i>
+                    <span id="memberCountText">1 Participante</span>
+                </div>
+
+                <div class="info-pill room-code-pill">
+                    <span class="label">Sala:</span>
+                    <strong id="displayRoomId">------</strong>
+                </div>
+
+                <button class="btn btn-secondary btn-sm" id="btnCopyLink" title="Copiar link da sala">
+                    <i class="fa-regular fa-copy"></i> Copiar Link
+                </button>
+            </div>
+        </header>
+
+        <!-- Room Entry Modal (Shown if room code is empty or to join) -->
+        <div class="modal-overlay" id="roomModal">
+            <div class="room-card">
+                <div class="card-header">
+                    <div class="icon-badge">
+                        <i class="fa-solid fa-desktop"></i>
+                    </div>
+                    <h2>Entrar na Sala de Transmissão</h2>
+                    <p>Compartilhe sua tela em 1080p com áudio e assista às transmissões dos seus amigos simultaneamente.</p>
+                </div>
+
+                <div class="card-body">
+                    <div class="input-group">
+                        <label for="inputRoomId">Código da Sala</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-hashtag input-icon"></i>
+                            <input type="text" id="inputRoomId" placeholder="Ex: sala-de-stream" maxlength="24">
+                            <button class="btn-icon" id="btnRandomRoom" title="Gerar nome aleatório">
+                                <i class="fa-solid fa-shuffle"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary btn-block btn-lg" id="btnJoinRoom">
+                        <i class="fa-solid fa-right-to-bracket"></i> Entrar na Sala
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Stream Workspace (Video Grid) -->
+        <main class="stream-main">
+            <!-- Dynamic Video Stream Grid -->
+            <div class="stream-grid" id="streamGrid">
+                
+                <!-- Empty State (Shown when no active streams exist) -->
+                <div class="empty-grid-placeholder" id="emptyGridPlaceholder">
+                    <div class="placeholder-card">
+                        <div class="pulse-icon">
+                            <i class="fa-solid fa-display"></i>
+                        </div>
+                        <h3>Nenhuma tela sendo compartilhada no momento</h3>
+                        <p>Qualquer pessoa na sala pode compartilhar a tela ao mesmo tempo em 1080p com áudio do computador.</p>
+                        
+                        <button class="btn btn-primary btn-lg" id="btnStartShareBig">
+                            <i class="fa-solid fa-display"></i> Compartilhar Minha Tela
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+
+        <!-- Controls Toolbar (Floating Bottom Bar) -->
+        <footer class="controls-toolbar">
+            <div class="toolbar-left">
+                <button class="btn btn-primary" id="btnStartShare">
+                    <i class="fa-solid fa-display"></i> Compartilhar Tela
+                </button>
+
+                <button class="btn btn-danger" id="btnStopShare" hidden>
+                    <i class="fa-solid fa-circle-stop"></i> Parar Compartilhamento
+                </button>
+            </div>
+
+            <div class="toolbar-center">
+                <div class="active-streams-counter" id="activeStreamsBadge">
+                    <span class="dot"></span> <span id="activeStreamsText">0 Transmissões Ativas</span>
+                </div>
+            </div>
+
+            <div class="toolbar-right">
+                <button class="btn btn-secondary btn-sm" id="btnAudioGuide">
+                    <i class="fa-solid fa-volume-high"></i> Dica de Som
+                </button>
+
+                <button class="btn-icon" id="btnFullscreen" title="Tela Cheia">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+            </div>
+        </footer>
+
+        <!-- Audio Guide Modal -->
+        <div class="modal-overlay" id="audioGuideModal" style="display: none;" hidden>
+            <div class="modal-card modal-sm">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-volume-high"></i> Como incluir o som do computador</h3>
+                    <button class="btn-close" id="btnCloseAudioGuide"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <ol class="steps-list">
+                        <li>
+                            <span class="step-num">1</span>
+                            <div>
+                                <strong>Clique em "Compartilhar Tela"</strong>
+                                <p>O navegador exibirá a janela nativa do Windows.</p>
+                            </div>
+                        </li>
+                        <li>
+                            <span class="step-num">2</span>
+                            <div>
+                                <strong>Escolha a opção "Tela Inteira" ou a "Aba" do vídeo</strong>
+                                <p>Para games ou filmes, selecione a tela inteira.</p>
+                            </div>
+                        </li>
+                        <li>
+                            <span class="step-num">3</span>
+                            <div>
+                                <strong>Marque "Compartilhar áudio do sistema"</strong>
+                                <p>Marque a caixinha no canto inferior esquerdo para enviar o áudio do seu PC em alta fidelidade.</p>
+                            </div>
+                        </li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
