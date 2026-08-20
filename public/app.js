@@ -44,7 +44,12 @@ const btnFullscreen = document.getElementById('btnFullscreen');
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
-    inputRoomId.value = roomParam ? roomParam : generateRandomRoomId();
+    if (roomParam) {
+        inputRoomId.value = roomParam;
+        joinRoom();
+    } else {
+        inputRoomId.value = generateRandomRoomId();
+    }
 });
 
 btnRandomRoom.addEventListener('click', () => {
@@ -72,11 +77,13 @@ function joinRoom() {
     window.history.pushState({ path: newUrl }, '', newUrl);
 
     displayRoomId.textContent = roomId;
-    roomModal.style.display = 'none';
+    roomModal.style.setProperty('display', 'none', 'important');
+    roomModal.classList.add('hidden');
     roomModal.hidden = true;
 
     socket.emit('join-room', { roomId });
 }
+
 
 // Socket Events
 socket.on('room-users', ({ users, socketId }) => {

@@ -216,6 +216,12 @@ body {
     padding: 20px;
 }
 
+.modal-overlay[hidden],
+.modal-overlay.hidden {
+    display: none !important;
+}
+
+
 .room-card {
     width: 100%;
     max-width: 440px;
