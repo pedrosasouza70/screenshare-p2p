@@ -16,6 +16,12 @@ const io = new Server(server, {
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Fallback route to ensure index.html is always served
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+
 // Store active rooms and members
 const rooms = new Map();
 
