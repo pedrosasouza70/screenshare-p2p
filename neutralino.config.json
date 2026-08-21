@@ -10,8 +10,9 @@
   "extensions": [
     {
       "id": "js.neutralino.audioIsolator",
-      "commandWin": "${NL_PATH}/extensions/audio-isolator/AudioIsolator.exe"
+      "commandWin": "${NL_PATH}/extensions/audio-isolator/ProcessAudioCapture.exe"
     }
+
   ],
 
   "cli": {

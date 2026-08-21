@@ -466,3 +466,136 @@ audioGuideModal.addEventListener('click', (e) => {
         audioGuideModal.style.display = 'none';
     }
 });
+
+// Process Audio Isolator (WASAPI Loopback without Discord)
+const isolateAudioModal = document.getElementById('isolateAudioModal');
+const btnIsolateAudio = document.getElementById('btnIsolateAudio');
+const btnCloseIsolateModal = document.getElementById('btnCloseIsolateModal');
+const processSelect = document.getElementById('processSelect');
+const btnApplyAudioIsolation = document.getElementById('btnApplyAudioIsolation');
+const btnRefreshProcesses = document.getElementById('btnRefreshProcesses');
+const isolatorStatusText = document.getElementById('isolatorStatusText');
+
+let isolatedAudioContext = null;
+let isolatedAudioElement = null;
+let isolatedAudioTrack = null;
+
+async function loadProcessList() {
+    processSelect.innerHTML = '<option value="">Carregando janelas ativas...</option>';
+    try {
+        const res = await fetch('http://127.0.0.1:8989/processes', { mode: 'cors' });
+        const processes = await res.json();
+        processSelect.innerHTML = '';
+
+        if (processes.length === 0) {
+            processSelect.innerHTML = '<option value="">Nenhum processo com janela encontrado</option>';
+            return;
+        }
+
+        // Filter and sort window titles
+        processes.sort((a, b) => a.title.localeCompare(b.title));
+        processes.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.pid;
+            opt.textContent = `${p.title} [${p.name}.exe]`;
+            processSelect.appendChild(opt);
+        });
+    } catch (e) {
+        processSelect.innerHTML = '<option value="">Audio Isolator não está ativo localmente</option>';
+        console.log('[AudioIsolator] Could not reach http://127.0.0.1:8989');
+    }
+}
+
+if (btnIsolateAudio) {
+    btnIsolateAudio.addEventListener('click', () => {
+        isolateAudioModal.hidden = false;
+        isolateAudioModal.style.display = 'flex';
+        loadProcessList();
+    });
+}
+
+if (btnCloseIsolateModal) {
+    btnCloseIsolateModal.addEventListener('click', () => {
+        isolateAudioModal.hidden = true;
+        isolateAudioModal.style.display = 'none';
+    });
+}
+
+if (isolateAudioModal) {
+    isolateAudioModal.addEventListener('click', (e) => {
+        if (e.target === isolateAudioModal) {
+            isolateAudioModal.hidden = true;
+            isolateAudioModal.style.display = 'none';
+        }
+    });
+}
+
+if (btnRefreshProcesses) {
+    btnRefreshProcesses.addEventListener('click', loadProcessList);
+}
+
+if (btnApplyAudioIsolation) {
+    btnApplyAudioIsolation.addEventListener('click', async () => {
+        const pid = processSelect.value;
+        if (!pid) return alert('Por favor, selecione um processo da lista!');
+
+        try {
+            await fetch(`http://127.0.0.1:8989/select?pid=${pid}`);
+            
+            // Connect to isolated audio stream
+            if (!isolatedAudioContext) {
+                isolatedAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (isolatedAudioContext.state === 'suspended') {
+                await isolatedAudioContext.resume();
+            }
+
+            if (isolatedAudioElement) {
+                isolatedAudioElement.pause();
+                isolatedAudioElement.src = '';
+            }
+
+            isolatedAudioElement = new Audio();
+            isolatedAudioElement.crossOrigin = 'anonymous';
+            isolatedAudioElement.src = `http://127.0.0.1:8989/audio.wav?t=${Date.now()}`;
+            isolatedAudioElement.autoplay = true;
+
+            const source = isolatedAudioContext.createMediaElementSource(isolatedAudioElement);
+            const destination = isolatedAudioContext.createMediaStreamDestination();
+            source.connect(destination);
+
+            isolatedAudioTrack = destination.stream.getAudioTracks()[0];
+
+            // If local screen share is currently active, replace audio track
+            if (localStream) {
+                const oldAudioTrack = localStream.getAudioTracks()[0];
+                if (oldAudioTrack) {
+                    localStream.removeTrack(oldAudioTrack);
+                    oldAudioTrack.stop();
+                }
+                localStream.addTrack(isolatedAudioTrack);
+
+                // Replace sender track across all active peer connections
+                for (const [peerId, peerObj] of peers.entries()) {
+                    const sender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (sender) {
+                        sender.replaceTrack(isolatedAudioTrack);
+                    }
+                }
+            }
+
+            isolatorStatusText.style.display = 'block';
+            isolatorStatusText.textContent = `Áudio isolado com sucesso para o processo PID ${pid}! Som do Discord filtrado.`;
+
+            setTimeout(() => {
+                isolateAudioModal.hidden = true;
+                isolateAudioModal.style.display = 'none';
+            }, 1800);
+
+        } catch (err) {
+            console.error('[AudioIsolator] Error:', err);
+            alert('Não foi possível conectar ao fluxo de áudio isolado: ' + err.message);
+        }
+    });
+}
+

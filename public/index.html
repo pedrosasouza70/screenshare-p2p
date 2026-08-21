@@ -116,6 +116,10 @@
             </div>
 
             <div class="toolbar-right">
+                <button class="btn btn-secondary btn-sm" id="btnIsolateAudio" title="Filtrar som apenas da janela do jogo (sem Discord)">
+                    <i class="fa-solid fa-gamepad"></i> Isolar Som do Jogo
+                </button>
+
                 <button class="btn btn-secondary btn-sm" id="btnAudioGuide">
                     <i class="fa-solid fa-volume-high"></i> Dica de Som
                 </button>
@@ -126,8 +130,39 @@
             </div>
         </footer>
 
+        <!-- Process Audio Isolator Modal -->
+        <div class="modal-overlay" id="isolateAudioModal" style="display: none;" hidden>
+            <div class="modal-card modal-sm">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-gamepad"></i> Isolar Áudio por Janela (Sem Discord)</h3>
+                    <button class="btn-close" id="btnCloseIsolateModal"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="modal-body">
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+                        Escolha qual janela/jogo deve ter o som transmitido exclusivamente. O áudio do Discord e de outros programas será 100% filtrado.
+                    </p>
+                    <div class="input-group">
+                        <label for="processSelect">Selecione o Jogo / Janela:</label>
+                        <select id="processSelect" style="width: 100%; padding: 10px; background: rgba(0,0,0,0.4); color: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none;">
+                            <option value="">Carregando janelas ativas...</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 16px;">
+                        <button class="btn btn-primary btn-block" id="btnApplyAudioIsolation">
+                            <i class="fa-solid fa-check"></i> Ativar Som Isolado do Jogo
+                        </button>
+                        <button class="btn btn-secondary" id="btnRefreshProcesses" title="Recarregar lista de janelas">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                    </div>
+                    <div id="isolatorStatusText" style="font-size: 0.8rem; color: var(--success); margin-top: 10px; text-align: center; display: none;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Audio Guide Modal -->
         <div class="modal-overlay" id="audioGuideModal" style="display: none;" hidden>
+
             <div class="modal-card modal-sm">
                 <div class="modal-header">
                     <h3><i class="fa-solid fa-volume-high"></i> Como incluir o som do computador</h3>

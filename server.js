@@ -127,4 +127,21 @@ server.listen(PORT, () => {
     console.log(`  Local:   http://localhost:${PORT}`);
     console.log(`  Rede:    http://${localIp}:${PORT}`);
     console.log(`==================================================\n`);
+
+    // Auto-start Windows Process Audio Isolator if running locally on Windows
+    if (process.platform === 'win32') {
+        const { spawn } = require('child_process');
+        const fs = require('fs');
+        const isolatorPath = path.join(__dirname, 'extensions', 'audio-isolator', 'ProcessAudioCapture.exe');
+        if (fs.existsSync(isolatorPath)) {
+            try {
+                const p = spawn(isolatorPath, [], { detached: true, stdio: 'ignore' });
+                p.unref();
+                console.log(`  🎙️ Process Audio Isolator ativo em http://127.0.0.1:8989/`);
+            } catch(e) {
+                console.log(`  ⚠️ Audio Isolator log:`, e.message);
+            }
+        }
+    }
 });
+
