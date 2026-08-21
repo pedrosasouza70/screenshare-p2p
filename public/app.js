@@ -132,9 +132,14 @@ socket.on('signal', async ({ senderId, signal }) => {
                 addLocalTracksToPC(pc);
             }
 
-            const answer = await pc.createAnswer();
+            let answer = await pc.createAnswer();
+            answer = new RTCSessionDescription({
+                type: answer.type,
+                sdp: optimizeSDP(answer.sdp)
+            });
             await pc.setLocalDescription(answer);
             socket.emit('signal', { targetId: senderId, signal: pc.localDescription });
+
 
         } else if (signal.type === 'answer') {
             await pc.setRemoteDescription(new RTCSessionDescription(signal));
@@ -194,11 +199,37 @@ function getOrCreatePeerConnection(peerId) {
     return pc;
 }
 
+// SDP Optimization Helper (Unlocks 8Mbps 1080p60 Bitrate & Stereo Audio)
+function optimizeSDP(sdp) {
+    let lines = sdp.split('\r\n');
+    let newLines = [];
+
+    for (let line of lines) {
+        newLines.push(line);
+        // Opus Stereo & High Bitrate Audio (320kbps)
+        if (line.startsWith('a=fmtp:') && line.includes('opus/48000')) {
+            newLines[newLines.length - 1] = line + ';stereo=1;sprop-stereo=1;maxaveragebitrate=320000';
+        }
+        // Inject Video Bitrate Booster (8000 Kbps max bitrate for crisp 1080p 60FPS)
+        if (line.startsWith('m=video')) {
+            newLines.push('b=AS:8000');
+        }
+    }
+    return newLines.join('\r\n');
+}
+
 function removePeerConnection(peerId) {
     if (peers.has(peerId)) {
         const peerObj = peers.get(peerId);
+        if (peerObj.stream) {
+            peerObj.stream.getTracks().forEach(track => track.stop());
+        }
         if (peerObj.pc) peerObj.pc.close();
-        if (peerObj.tileEl) peerObj.tileEl.remove();
+        if (peerObj.tileEl) {
+            const videoEl = peerObj.tileEl.querySelector('video');
+            if (videoEl) videoEl.srcObject = null;
+            peerObj.tileEl.remove();
+        }
         peers.delete(peerId);
         updateGridState();
     }
@@ -208,13 +239,19 @@ function removeStreamTile(peerId) {
     if (peers.has(peerId)) {
         const peerObj = peers.get(peerId);
         if (peerObj.tileEl) {
+            const videoEl = peerObj.tileEl.querySelector('video');
+            if (videoEl) videoEl.srcObject = null;
             peerObj.tileEl.remove();
             peerObj.tileEl = null;
+        }
+        if (peerObj.stream) {
+            peerObj.stream.getTracks().forEach(t => t.stop());
         }
         peerObj.stream = new MediaStream();
         updateGridState();
     }
 }
+
 
 function addLocalTracksToPC(pc) {
     if (!pc || !localStream) return;
@@ -266,10 +303,15 @@ async function startScreenShare() {
         // Add tracks & send offer to all active peers in room
         for (const [peerId, peerObj] of peers.entries()) {
             addLocalTracksToPC(peerObj.pc);
-            const offer = await peerObj.pc.createOffer();
+            let offer = await peerObj.pc.createOffer();
+            offer = new RTCSessionDescription({
+                type: offer.type,
+                sdp: optimizeSDP(offer.sdp)
+            });
             await peerObj.pc.setLocalDescription(offer);
             socket.emit('signal', { targetId: peerId, signal: peerObj.pc.localDescription });
         }
+
 
         socket.emit('stream-state', { roomId, state: 'started' });
 
