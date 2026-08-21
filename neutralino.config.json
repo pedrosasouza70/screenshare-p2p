@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
+  "applicationId": "com.streamgrid.app",
+  "defaultMode": "window",
+  "port": 0,
+  "url": "/index.html",
+  "documentRoot": "/public/",
+
+  "tokenSecurity": "one-time",
+  "cli": {
+    "binaryName": "StreamGrid",
+    "resourcesPath": "/public/",
+    "extensionsPath": "/extensions/",
+    "clientLibrary": "/public/js/neutralino.js",
+    "binaryVersion": "5.6.0",
+    "clientVersion": "5.6.0"
+  },
+  "modes": {
+    "window": {
+      "title": "StreamGrid 1080p - Multi-Screenshare",
+      "width": 1280,
+      "height": 800,
+      "minWidth": 900,
+      "minHeight": 600,
+      "center": true,
+      "fullScreen": false,
+      "alwaysOnTop": false,
+      "icon": "/public/icon.png",
+      "enableInspector": false,
+      "resizable": true,
+      "maximize": false,
+      "hidden": false,
+      "exitProcessOnClose": true
+    }
+  }
+}

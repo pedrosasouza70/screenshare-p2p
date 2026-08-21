@@ -1,6 +1,8 @@
-// StreamGrid Multi-Screenshare Mesh Client
+const SERVER_URL = (window.location.protocol.startsWith('http') && !window.location.hostname.includes('localhost') && window.location.hostname !== '127.0.0.1')
+    ? window.location.origin
+    : 'https://screenshare-p2p.onrender.com';
+const socket = io(SERVER_URL);
 
-const socket = io();
 
 const rtcConfig = {
     iceServers: [
