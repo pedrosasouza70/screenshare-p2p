@@ -607,15 +607,18 @@ async function ensureAudioIsolatorRunning() {
     // If not running and in Neutralino desktop, spawn it automatically
     if (window.Neutralino && Neutralino.os) {
         try {
-            console.log('[AudioIsolator] Spawning ProcessAudioCapture.exe...');
-            await Neutralino.os.execCommand('start "" "${NL_PATH}\\extensions\\audio-isolator\\ProcessAudioCapture.exe"');
-            await new Promise(r => setTimeout(r, 600));
+            const basePath = (typeof NL_PATH !== 'undefined' && NL_PATH) ? NL_PATH : '.';
+            const exePath = `${basePath}\\extensions\\audio-isolator\\ProcessAudioCapture.exe`;
+            console.log('[AudioIsolator] Spawning ProcessAudioCapture:', exePath);
+            await Neutralino.os.execCommand(`start "" "${exePath}"`, { background: true });
+            await new Promise(r => setTimeout(r, 700));
         } catch(err) {
             console.warn('[AudioIsolator] Spawn command error:', err);
         }
     }
     return false;
 }
+
 
 async function loadProcessList() {
     processSelect.innerHTML = '<option value="">Carregando janelas ativas...</option>';
