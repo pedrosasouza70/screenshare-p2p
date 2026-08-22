@@ -3,26 +3,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
 namespace ProcessAudioCapture
 {
-    // COM Interfaces and Structs for WASAPI Process Loopback (Windows 10 20348+ and Windows 11)
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS
-    {
-        public uint TargetProcessId;
-        public uint ProcessLoopbackMode; // 0 = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, 1 = EXCLUDE
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct AUDIOCLIENT_ACTIVATION_PARAMS
     {
-        public uint ActivationType; // 1 = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK
-        public AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS ProcessLoopbackParams;
+        public int ActivationType; // 1 = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK
+        public uint TargetProcessId;
+        public uint ProcessLoopbackMode; // 0 = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -35,15 +27,6 @@ namespace ProcessAudioCapture
         public ushort nBlockAlign;
         public ushort wBitsPerSample;
         public ushort cbSize;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct WAVEFORMATEXTENSIBLE
-    {
-        public WAVEFORMATEX Format;
-        public ushort wValidBitsPerSample;
-        public uint dwChannelMask;
-        public Guid SubFormat;
     }
 
     [Guid("1CB9A8F9-724E-4440-B515-1415F8C7F002"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -71,6 +54,30 @@ namespace ProcessAudioCapture
         [PreserveSig] int GetNextPacketSize(out uint pNumFramesInNextPacket);
     }
 
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, uint dwStateMask, out IntPtr ppDevices);
+        [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
+        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string pwstrId, out IMMDevice ppDevice);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr pClient);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr pClient);
+    }
+
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid iid, uint dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+        [PreserveSig] int OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
+        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
+        [PreserveSig] int GetState(out uint pdwState);
+    }
+
+    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    public class MMDeviceEnumeratorComObject
+    {
+    }
+
     [Guid("41D949AB-9370-4B50-9D64-149BBDA81FFB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IActivateAudioInterfaceCompletionHandler
     {
@@ -82,7 +89,6 @@ namespace ProcessAudioCapture
     {
         [PreserveSig] int GetActivateResult(out int activateResult, [MarshalAs(UnmanagedType.IUnknown)] out object activatedInterface);
     }
-
 
     class CompletionHandler : IActivateAudioInterfaceCompletionHandler
     {
@@ -100,6 +106,12 @@ namespace ProcessAudioCapture
 
     class Program
     {
+        [DllImport("ole32.dll")]
+        static extern int CoInitializeEx(IntPtr pvReserved, uint dwCoInit);
+
+        [DllImport("ole32.dll")]
+        static extern void CoUninitialize();
+
         [DllImport("Mmdevapi.dll", ExactSpelling = true, PreserveSig = true)]
         public static extern int ActivateAudioInterfaceAsync(
             [In, MarshalAs(UnmanagedType.LPWStr)] string deviceInterfacePath,
@@ -127,16 +139,12 @@ namespace ProcessAudioCapture
             // Start HTTP PCM audio streaming server on localhost:8989
             StartHttpServer();
 
-            // Interactive command loop from stdin (Neutralino or parent process)
+            // Interactive command loop from stdin
             string line;
             while ((line = Console.ReadLine()) != null)
             {
                 line = line.Trim();
-                if (line.StartsWith("LIST_PROCESSES"))
-                {
-                    ListWindowsProcesses();
-                }
-                else if (line.StartsWith("START_CAPTURE "))
+                if (line.StartsWith("START_CAPTURE "))
                 {
                     string pidStr = line.Substring("START_CAPTURE ".Length).Trim();
                     uint pid;
@@ -157,26 +165,6 @@ namespace ProcessAudioCapture
 
             StopProcessAudioCapture();
             if (httpListener != null) httpListener.Close();
-        }
-
-        static void ListWindowsProcesses()
-        {
-            var list = new StringBuilder();
-            list.Append("PROCESS_LIST_START\n");
-            Process[] processes = Process.GetProcesses();
-            foreach (Process p in processes)
-            {
-                try
-                {
-                    if (!string.IsNullOrEmpty(p.MainWindowTitle))
-                    {
-                        list.Append(string.Format("{0}::{1}::{2}\n", p.Id, p.ProcessName, p.MainWindowTitle));
-                    }
-                }
-                catch { }
-            }
-            list.Append("PROCESS_LIST_END\n");
-            Console.WriteLine(list.ToString());
         }
 
         static void StartHttpServer()
@@ -229,7 +217,6 @@ namespace ProcessAudioCapture
 
             if (req.Url.AbsolutePath == "/processes")
             {
-                // JSON list of active window processes
                 var sb = new StringBuilder();
                 sb.Append("[");
                 Process[] processes = Process.GetProcesses();
@@ -279,7 +266,6 @@ namespace ProcessAudioCapture
                 return;
             }
 
-
             if (req.Url.AbsolutePath == "/audio.wav" || req.Url.AbsolutePath == "/stream")
             {
                 res.ContentType = "audio/wav";
@@ -288,6 +274,7 @@ namespace ProcessAudioCapture
                 // Write initial 44-byte WAV header with 48000Hz, 16-bit, Stereo PCM
                 byte[] wavHeader = CreateWavHeader(48000, 16, 2);
                 res.OutputStream.Write(wavHeader, 0, wavHeader.Length);
+                res.OutputStream.Flush();
 
                 lock (clientLock)
                 {
@@ -313,7 +300,7 @@ namespace ProcessAudioCapture
             short blockAlign = (short)(channels * bitsPerSample / 8);
 
             Encoding.ASCII.GetBytes("RIFF").CopyTo(header, 0);
-            BitConverter.GetBytes(0x7fffffff).CopyTo(header, 4); // Max streaming length
+            BitConverter.GetBytes(0x7fffffff).CopyTo(header, 4);
             Encoding.ASCII.GetBytes("WAVE").CopyTo(header, 8);
             Encoding.ASCII.GetBytes("fmt ").CopyTo(header, 12);
             BitConverter.GetBytes(16).CopyTo(header, 16);
@@ -324,7 +311,7 @@ namespace ProcessAudioCapture
             BitConverter.GetBytes(blockAlign).CopyTo(header, 32);
             BitConverter.GetBytes(bitsPerSample).CopyTo(header, 34);
             Encoding.ASCII.GetBytes("data").CopyTo(header, 36);
-            BitConverter.GetBytes(0x7fffffff).CopyTo(header, 40); // Max stream data length
+            BitConverter.GetBytes(0x7fffffff).CopyTo(header, 40);
             return header;
         }
 
@@ -335,6 +322,7 @@ namespace ProcessAudioCapture
             isCapturing = true;
 
             captureThread = new Thread(() => CaptureLoop(pid));
+            captureThread.SetApartmentState(ApartmentState.MTA);
             captureThread.IsBackground = true;
             captureThread.Start();
             Console.WriteLine("[ProcessAudioCapture] Capture thread started for PID: " + pid);
@@ -351,45 +339,79 @@ namespace ProcessAudioCapture
 
         static void CaptureLoop(uint pid)
         {
+            // Initialize COM for Multi-Threaded Apartment (MTA)
+            CoInitializeEx(IntPtr.Zero, 0);
+
             try
             {
-                AUDIOCLIENT_ACTIVATION_PARAMS activateParams = new AUDIOCLIENT_ACTIVATION_PARAMS();
-                activateParams.ActivationType = 1; // AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK
-                activateParams.ProcessLoopbackParams.TargetProcessId = pid;
-                activateParams.ProcessLoopbackParams.ProcessLoopbackMode = 0; // INCLUDE_TARGET_PROCESS_TREE
+                IAudioClient audioClient = null;
 
-                IntPtr pActivationParams = Marshal.AllocHGlobal(Marshal.SizeOf(activateParams));
-                Marshal.StructureToPtr(activateParams, pActivationParams, false);
-
-                CompletionHandler handler = new CompletionHandler();
-                IActivateAudioInterfaceAsyncOperation asyncOp;
-
-                int hr = ActivateAudioInterfaceAsync(
-                    VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-                    IID_IAudioClient,
-                    pActivationParams,
-                    handler,
-                    out asyncOp);
-
-                Marshal.FreeHGlobal(pActivationParams);
-
-                if (hr != 0)
+                // Try Windows 10/11 Process Loopback First
+                if (pid > 0)
                 {
-                    Console.WriteLine(string.Format("[ProcessAudioCapture] ActivateAudioInterfaceAsync failed with HRESULT: 0x{0:X}", hr));
-                    return;
+                    try
+                    {
+                        AUDIOCLIENT_ACTIVATION_PARAMS activateParams = new AUDIOCLIENT_ACTIVATION_PARAMS();
+                        activateParams.ActivationType = 1; // PROCESS_LOOPBACK
+                        activateParams.TargetProcessId = pid;
+                        activateParams.ProcessLoopbackMode = 0; // INCLUDE_TARGET_PROCESS_TREE
+
+                        IntPtr pActivationParams = Marshal.AllocHGlobal(Marshal.SizeOf(activateParams));
+                        Marshal.StructureToPtr(activateParams, pActivationParams, false);
+
+                        CompletionHandler handler = new CompletionHandler();
+                        IActivateAudioInterfaceAsyncOperation asyncOp;
+
+                        int hrActivate = ActivateAudioInterfaceAsync(
+                            VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+                            IID_IAudioClient,
+                            pActivationParams,
+                            handler,
+                            out asyncOp);
+
+                        Marshal.FreeHGlobal(pActivationParams);
+
+                        if (hrActivate == 0)
+                        {
+                            handler.CompletedEvent.WaitOne(2000);
+                            if (handler.ResultHResult == 0 && handler.ActivatedInterface != null)
+                            {
+                                audioClient = (IAudioClient)handler.ActivatedInterface;
+                                Console.WriteLine(string.Format("[ProcessAudioCapture] Process loopback activated successfully for PID: {0}", pid));
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("[ProcessAudioCapture] Process loopback exception: " + ex.Message);
+                    }
                 }
 
-                handler.CompletedEvent.WaitOne(3000);
-
-                if (handler.ResultHResult != 0 || handler.ActivatedInterface == null)
+                // Fallback to Standard WASAPI Loopback on Default Audio Endpoint if Process Loopback unavailable
+                if (audioClient == null)
                 {
-                    Console.WriteLine(string.Format("[ProcessAudioCapture] Activation completed with error: 0x{0:X}", handler.ResultHResult));
-                    return;
+                    Console.WriteLine("[ProcessAudioCapture] Using WASAPI System Loopback Capture...");
+                    IMMDeviceEnumerator enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+                    IMMDevice defaultDevice;
+                    // 0 = eRender, 0 = eConsole/eMultimedia
+                    int hrEnum = enumerator.GetDefaultAudioEndpoint(0, 0, out defaultDevice);
+                    if (hrEnum != 0 || defaultDevice == null)
+                    {
+                        Console.WriteLine(string.Format("[ProcessAudioCapture] GetDefaultAudioEndpoint failed: 0x{0:X}", hrEnum));
+                        return;
+                    }
+
+                    object pClientObj;
+                    int hrAct = defaultDevice.Activate(ref IID_IAudioClient, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out pClientObj);
+                    if (hrAct != 0 || pClientObj == null)
+                    {
+                        Console.WriteLine(string.Format("[ProcessAudioCapture] Device.Activate failed: 0x{0:X}", hrAct));
+                        return;
+                    }
+                    audioClient = (IAudioClient)pClientObj;
                 }
 
-                IAudioClient audioClient = (IAudioClient)handler.ActivatedInterface;
-
-                // Setup 48kHz, 16-bit stereo PCM format
+                // Format setup (48kHz, 16-bit stereo PCM)
                 WAVEFORMATEX waveFormat = new WAVEFORMATEX();
                 waveFormat.wFormatTag = 1; // PCM
                 waveFormat.nChannels = 2;
@@ -401,20 +423,18 @@ namespace ProcessAudioCapture
 
                 Guid sessionGuid = Guid.Empty;
                 const uint AUDCLNT_STREAMFLAGS_LOOPBACK = 0x00020000;
-                const long REFTIMES_PER_SEC = 10000000; // 100ns units (1 sec buffer)
+                const long REFTIMES_PER_SEC = 10000000; // 1 sec buffer
 
-                hr = audioClient.Initialize(0, AUDCLNT_STREAMFLAGS_LOOPBACK, REFTIMES_PER_SEC, 0, ref waveFormat, ref sessionGuid);
-                if (hr != 0)
+                int hrInit = audioClient.Initialize(0, AUDCLNT_STREAMFLAGS_LOOPBACK, REFTIMES_PER_SEC, 0, ref waveFormat, ref sessionGuid);
+                if (hrInit != 0)
                 {
-                    // Fallback to mix format if needed
                     IntPtr pMixFormat;
                     audioClient.GetMixFormat(out pMixFormat);
                     if (pMixFormat != IntPtr.Zero)
                     {
                         WAVEFORMATEX mixFormat = (WAVEFORMATEX)Marshal.PtrToStructure(pMixFormat, typeof(WAVEFORMATEX));
-                        hr = audioClient.Initialize(0, AUDCLNT_STREAMFLAGS_LOOPBACK, REFTIMES_PER_SEC, 0, ref mixFormat, ref sessionGuid);
+                        audioClient.Initialize(0, AUDCLNT_STREAMFLAGS_LOOPBACK, REFTIMES_PER_SEC, 0, ref mixFormat, ref sessionGuid);
                     }
-
                 }
 
                 object pCaptureObj;
@@ -422,7 +442,7 @@ namespace ProcessAudioCapture
                 IAudioCaptureClient captureClient = (IAudioCaptureClient)pCaptureObj;
 
                 audioClient.Start();
-                Console.WriteLine("[ProcessAudioCapture] Audio loopback active for PID " + pid);
+                Console.WriteLine("[ProcessAudioCapture] Audio loopback active and streaming!");
 
                 byte[] buffer = new byte[16384];
 
@@ -438,8 +458,8 @@ namespace ProcessAudioCapture
                         uint flags;
                         ulong pos, qpc;
 
-                        hr = captureClient.GetBuffer(out pData, out numFramesToRead, out flags, out pos, out qpc);
-                        if (hr == 0 && numFramesToRead > 0)
+                        int hrBuf = captureClient.GetBuffer(out pData, out numFramesToRead, out flags, out pos, out qpc);
+                        if (hrBuf == 0 && numFramesToRead > 0)
                         {
                             int bytesToRead = (int)(numFramesToRead * waveFormat.nBlockAlign);
                             if (bytesToRead > buffer.Length) buffer = new byte[bytesToRead];
@@ -471,6 +491,10 @@ namespace ProcessAudioCapture
             catch (Exception ex)
             {
                 Console.WriteLine("[ProcessAudioCapture] CaptureLoop Exception: " + ex.Message);
+            }
+            finally
+            {
+                CoUninitialize();
             }
         }
 
