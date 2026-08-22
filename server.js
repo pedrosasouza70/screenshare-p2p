@@ -30,41 +30,55 @@ io.on('connection', (socket) => {
     console.log(`[+] Client connected: ${socket.id}`);
 
     socket.on('join-room', ({ roomId }) => {
-        let room = rooms.get(roomId);
+        const cleanRoomId = (roomId || '').trim().toLowerCase();
+        if (!cleanRoomId) return;
+
+        let room = rooms.get(cleanRoomId);
 
         if (!room) {
-            room = new Set();
-            rooms.set(roomId, room);
+            room = {
+                members: new Set(),
+                activeStreams: new Set()
+            };
+            rooms.set(cleanRoomId, room);
         }
 
-        socket.join(roomId);
-        socket.roomId = roomId;
-        room.add(socket.id);
+        // Leave any previous room
+        if (socket.roomId && socket.roomId !== cleanRoomId) {
+            leaveCurrentRoom(socket);
+        }
 
-        const otherUsers = Array.from(room).filter(id => id !== socket.id);
+        socket.join(cleanRoomId);
+        socket.roomId = cleanRoomId;
+        room.members.add(socket.id);
 
-        console.log(`[->] Socket ${socket.id} joined room "${roomId}" (Total: ${room.size})`);
+        const otherUsers = Array.from(room.members).filter(id => id !== socket.id);
+        const activeStreams = Array.from(room.activeStreams).filter(id => id !== socket.id);
 
-        // Send existing room members to new user
+        console.log(`[->] Socket ${socket.id} joined room "${cleanRoomId}" (Members: ${room.members.size})`);
+
+        // Send existing room members and active streamers to new user
         socket.emit('room-users', {
             users: otherUsers,
+            activeStreams: activeStreams,
             socketId: socket.id
         });
 
         // Notify existing members about new user
-        socket.to(roomId).emit('user-joined', {
+        socket.to(cleanRoomId).emit('user-joined', {
             socketId: socket.id,
-            memberCount: room.size
+            memberCount: room.members.size
         });
 
         // Broadcast updated room member count
-        io.to(roomId).emit('room-status', {
-            memberCount: room.size
+        io.to(cleanRoomId).emit('room-status', {
+            memberCount: room.members.size
         });
     });
 
     // Targeted WebRTC Signal Relay (Peer-to-Peer Mesh)
     socket.on('signal', ({ targetId, signal }) => {
+        if (!targetId || !signal) return;
         io.to(targetId).emit('signal', {
             senderId: socket.id,
             signal
@@ -73,33 +87,50 @@ io.on('connection', (socket) => {
 
     // Broadcast stream state changes (started/stopped screen share)
     socket.on('stream-state', ({ roomId, state }) => {
-        socket.to(roomId).emit('stream-state', {
+        const cleanRoomId = (roomId || socket.roomId || '').trim().toLowerCase();
+        const room = rooms.get(cleanRoomId);
+        if (room) {
+            if (state === 'started') {
+                room.activeStreams.add(socket.id);
+            } else {
+                room.activeStreams.delete(socket.id);
+            }
+        }
+        socket.to(cleanRoomId).emit('stream-state', {
             senderId: socket.id,
             state
         });
     });
 
-    socket.on('disconnect', () => {
-        console.log(`[-] Client disconnected: ${socket.id}`);
-        const roomId = socket.roomId;
-        if (roomId && rooms.has(roomId)) {
-            const room = rooms.get(roomId);
-            room.delete(socket.id);
+    function leaveCurrentRoom(sock) {
+        const rid = sock.roomId;
+        if (rid && rooms.has(rid)) {
+            const r = rooms.get(rid);
+            r.members.delete(sock.id);
+            r.activeStreams.delete(sock.id);
 
-            if (room.size === 0) {
-                rooms.delete(roomId);
-                console.log(`[x] Room "${roomId}" deleted (empty)`);
+            if (r.members.size === 0) {
+                rooms.delete(rid);
+                console.log(`[x] Room "${rid}" deleted (empty)`);
             } else {
-                io.to(roomId).emit('user-left', {
-                    socketId: socket.id,
-                    memberCount: room.size
+                io.to(rid).emit('user-left', {
+                    socketId: sock.id,
+                    memberCount: r.members.size
                 });
-                io.to(roomId).emit('room-status', {
-                    memberCount: room.size
+                io.to(rid).emit('room-status', {
+                    memberCount: r.members.size
                 });
             }
+            sock.leave(rid);
+            sock.roomId = null;
         }
+    }
+
+    socket.on('disconnect', () => {
+        console.log(`[-] Client disconnected: ${socket.id}`);
+        leaveCurrentRoom(socket);
     });
+
 });
 
 // Utility to get local network IP

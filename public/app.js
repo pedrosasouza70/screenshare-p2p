@@ -3,21 +3,26 @@ const SERVER_URL = (window.location.protocol.startsWith('http') && !window.locat
     : 'https://screenshare-p2p.onrender.com';
 const socket = io(SERVER_URL);
 
-
+// Redundant STUN server pool for high NAT/CGNAT penetration
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-    ]
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+    ],
+    iceCandidatePoolSize: 10
 };
 
 // Application State
+const STORAGE_KEY = 'streamgrid_last_room';
 let roomId = '';
 let myId = '';
 let localStream = null;
 
-// Map of remote peers: peerId -> { pc, stream, tileEl }
+// Map of remote peers: peerId -> { pc, stream, tileEl, iceCandidateQueue, isRemoteDescriptionSet }
 const peers = new Map();
 
 // DOM Elements
@@ -25,6 +30,7 @@ const roomModal = document.getElementById('roomModal');
 const inputRoomId = document.getElementById('inputRoomId');
 const btnJoinRoom = document.getElementById('btnJoinRoom');
 const btnRandomRoom = document.getElementById('btnRandomRoom');
+const btnChangeRoom = document.getElementById('btnChangeRoom');
 const displayRoomId = document.getElementById('displayRoomId');
 const memberCountText = document.getElementById('memberCountText');
 const btnCopyLink = document.getElementById('btnCopyLink');
@@ -42,12 +48,17 @@ const btnAudioGuide = document.getElementById('btnAudioGuide');
 const btnCloseAudioGuide = document.getElementById('btnCloseAudioGuide');
 const btnFullscreen = document.getElementById('btnFullscreen');
 
-// Auto populate room code from URL params
+// Auto populate room code from URL params or localStorage
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
+    const savedRoom = localStorage.getItem(STORAGE_KEY);
+
     if (roomParam) {
-        inputRoomId.value = roomParam;
+        inputRoomId.value = roomParam.trim().toLowerCase();
+        joinRoom();
+    } else if (savedRoom) {
+        inputRoomId.value = savedRoom.trim().toLowerCase();
         joinRoom();
     } else {
         inputRoomId.value = generateRandomRoomId();
@@ -75,8 +86,14 @@ function joinRoom() {
     roomId = inputRoomId.value.trim().toLowerCase();
     if (!roomId) return alert('Por favor, informe um código de sala!');
 
-    const newUrl = `${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
-    window.history.pushState({ path: newUrl }, '', newUrl);
+    // Persist room in localStorage
+    localStorage.setItem(STORAGE_KEY, roomId);
+
+    // Update browser URL query parameter if running on Web
+    if (window.location.protocol.startsWith('http') && window.history.pushState) {
+        const newUrl = `${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
+        window.history.pushState({ path: newUrl }, '', newUrl);
+    }
 
     displayRoomId.textContent = roomId;
     roomModal.style.setProperty('display', 'none', 'important');
@@ -86,22 +103,68 @@ function joinRoom() {
     socket.emit('join-room', { roomId });
 }
 
+// Change Room Button Handler
+if (btnChangeRoom) {
+    btnChangeRoom.addEventListener('click', () => {
+        roomModal.style.removeProperty('display');
+        roomModal.style.display = 'flex';
+        roomModal.classList.remove('hidden');
+        roomModal.hidden = false;
+        inputRoomId.focus();
+        inputRoomId.select();
+    });
+}
 
 // Socket Events
-socket.on('room-users', ({ users, socketId }) => {
+socket.on('room-users', async ({ users, activeStreams, socketId }) => {
     myId = socketId;
-    console.log('[Socket] Connected. My ID:', myId, 'Other users:', users);
-    
-    // Create peer connection objects for existing users
+    console.log('[Socket] Connected. My ID:', myId, 'Other users:', users, 'Active streams:', activeStreams);
+
+    // Initialize peer connections for existing users
     users.forEach(peerId => {
         getOrCreatePeerConnection(peerId);
     });
+
+    // If I am currently sharing screen, send offer with my tracks to all peers
+    if (localStream) {
+        for (const [peerId, peerObj] of peers.entries()) {
+            addLocalTracksToPC(peerObj.pc);
+            try {
+                let offer = await peerObj.pc.createOffer();
+                offer = new RTCSessionDescription({
+                    type: offer.type,
+                    sdp: optimizeSDP(offer.sdp)
+                });
+                await peerObj.pc.setLocalDescription(offer);
+                socket.emit('signal', { targetId: peerId, signal: peerObj.pc.localDescription });
+            } catch (e) {
+                console.error('[WebRTC] Error sending offer to existing peer:', e);
+            }
+        }
+    }
 });
 
-socket.on('user-joined', ({ socketId, memberCount }) => {
+socket.on('user-joined', async ({ socketId, memberCount }) => {
     console.log('[Socket] User joined:', socketId);
-    getOrCreatePeerConnection(socketId);
+    const pc = getOrCreatePeerConnection(socketId);
     updateMemberCount(memberCount);
+
+    // Sincronização Automática (Late-Joiner Sync):
+    // Se eu já estiver compartilhando a tela, negoceio imediatamente com o novo participante!
+    if (localStream) {
+        addLocalTracksToPC(pc);
+        try {
+            let offer = await pc.createOffer();
+            offer = new RTCSessionDescription({
+                type: offer.type,
+                sdp: optimizeSDP(offer.sdp)
+            });
+            await pc.setLocalDescription(offer);
+            socket.emit('signal', { targetId: socketId, signal: pc.localDescription });
+        } catch (e) {
+            console.error('[WebRTC] Error sending late-joiner offer:', e);
+        }
+    }
 });
 
 socket.on('user-left', ({ socketId, memberCount }) => {
@@ -118,16 +181,25 @@ function updateMemberCount(count) {
     memberCountText.textContent = `${count} ${count === 1 ? 'Participante' : 'Participantes'}`;
 }
 
-// Targeted WebRTC Signal Receiver
+// Targeted WebRTC Signal Receiver with Candidate Queueing
 socket.on('signal', async ({ senderId, signal }) => {
-    console.log('[WebRTC] Received signal from:', senderId, signal.type || 'ICE');
     const pc = getOrCreatePeerConnection(senderId);
+    const peerObj = peers.get(senderId);
 
     try {
         if (signal.type === 'offer') {
+            if (peerObj) peerObj.isRemoteDescriptionSet = false;
             await pc.setRemoteDescription(new RTCSessionDescription(signal));
+            if (peerObj) {
+                peerObj.isRemoteDescriptionSet = true;
+                // Flush buffered candidates
+                while (peerObj.iceCandidateQueue.length > 0) {
+                    const cand = peerObj.iceCandidateQueue.shift();
+                    try { await pc.addIceCandidate(cand); } catch(e) {}
+                }
+            }
 
-            // If I am broadcasting, add my tracks to this peer connection
+            // If I am broadcasting, attach my tracks to this peer connection
             if (localStream) {
                 addLocalTracksToPC(pc);
             }
@@ -140,11 +212,28 @@ socket.on('signal', async ({ senderId, signal }) => {
             await pc.setLocalDescription(answer);
             socket.emit('signal', { targetId: senderId, signal: pc.localDescription });
 
-
         } else if (signal.type === 'answer') {
             await pc.setRemoteDescription(new RTCSessionDescription(signal));
+            if (peerObj) {
+                peerObj.isRemoteDescriptionSet = true;
+                // Flush buffered candidates
+                while (peerObj.iceCandidateQueue.length > 0) {
+                    const cand = peerObj.iceCandidateQueue.shift();
+                    try { await pc.addIceCandidate(cand); } catch(e) {}
+                }
+            }
         } else if (signal.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            const candidate = new RTCIceCandidate(signal.candidate);
+            if (pc.remoteDescription && pc.remoteDescription.type && peerObj && peerObj.isRemoteDescriptionSet) {
+                try {
+                    await pc.addIceCandidate(candidate);
+                } catch (err) {
+                    console.warn('[WebRTC] Candidate error:', err);
+                }
+            } else if (peerObj) {
+                // Buffer candidate until remote description is processed
+                peerObj.iceCandidateQueue.push(candidate);
+            }
         }
     } catch (err) {
         console.error('[WebRTC] Signal handling error:', err);
@@ -170,11 +259,13 @@ function getOrCreatePeerConnection(peerId) {
     const peerObj = {
         pc,
         stream: new MediaStream(),
-        tileEl: null
+        tileEl: null,
+        iceCandidateQueue: [],
+        isRemoteDescriptionSet: false
     };
     peers.set(peerId, peerObj);
 
-    // ICE Candidate
+    // ICE Candidate Handler
     pc.onicecandidate = (event) => {
         if (event.candidate) {
             socket.emit('signal', {
@@ -184,7 +275,7 @@ function getOrCreatePeerConnection(peerId) {
         }
     };
 
-    // Remote Track Received -> Render Tile in Grid
+    // Remote Track Received -> Render & Paint Tile in Grid
     pc.ontrack = (event) => {
         console.log('[WebRTC] Received track from:', peerId, event.track.kind);
         peerObj.stream.addTrack(event.track);
@@ -193,11 +284,33 @@ function getOrCreatePeerConnection(peerId) {
             peerObj.tileEl = createStreamTile(peerId, peerObj.stream, `Participante ${peerId.substr(0, 5)}`, false);
             streamGrid.appendChild(peerObj.tileEl);
         }
+
+        const videoEl = peerObj.tileEl.querySelector('video');
+        if (videoEl) {
+            videoEl.srcObject = peerObj.stream;
+            videoEl.play().catch(e => console.log('[Playback] Video play request:', e));
+        }
+
+        event.track.onunmute = () => {
+            if (videoEl) {
+                videoEl.play().catch(e => {});
+            }
+        };
+
         updateGridState();
+    };
+
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE state (${peerId}):`, pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+            // Attempt ICE restart if needed
+            if (pc.restartIce) pc.restartIce();
+        }
     };
 
     return pc;
 }
+
 
 // SDP Optimization Helper (Unlocks 8Mbps 1080p60 Bitrate & Stereo Audio)
 function optimizeSDP(sdp) {
