@@ -1,11 +1,14 @@
 {
   "$schema": "https://raw.githubusercontent.com/neutralinojs/neutralinojs/main/schemas/neutralino.config.schema.json",
   "applicationId": "com.streamgrid.app",
+  "version": "1.0.0",
   "defaultMode": "window",
   "port": 0,
   "url": "/",
-  "documentRoot": "/",
+  "enableServer": true,
+  "enableNativeAPI": true,
   "tokenSecurity": "one-time",
+  "documentRoot": "/public/",
   "extensions": [
     {
       "id": "js.neutralino.audioIsolator",
@@ -31,8 +34,7 @@
       "fullScreen": false,
       "alwaysOnTop": false,
       "icon": "/public/icon.png",
-      "enableInspector": true,
-
+      "enableInspector": false,
       "resizable": true,
       "maximize": false,
       "hidden": false,
@@ -40,4 +42,3 @@
     }
   }
 }
-

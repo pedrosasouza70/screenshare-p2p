@@ -1,7 +1,12 @@
+if (typeof Neutralino !== 'undefined') {
+    try { Neutralino.init(); } catch(e) {}
+}
+
 const SERVER_URL = (window.location.protocol.startsWith('http') && !window.location.hostname.includes('localhost') && window.location.hostname !== '127.0.0.1')
     ? window.location.origin
     : 'https://screenshare-p2p.onrender.com';
 const socket = io(SERVER_URL);
+
 
 // Redundant STUN server pool for high NAT/CGNAT penetration
 const rtcConfig = {
