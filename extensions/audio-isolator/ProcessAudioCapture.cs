@@ -43,7 +43,7 @@ namespace ProcessAudioCapture
         [PreserveSig] int Stop();
         [PreserveSig] int Reset();
         [PreserveSig] int SetEventHandle(IntPtr eventHandle);
-        [PreserveSig] int GetService([In] ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object ppv);
+        [PreserveSig] int GetService([In] ref Guid riid, out IntPtr ppv);
     }
 
     [Guid("C8ADBD64-E71E-48a0-A4DE-185C395CD317"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -67,7 +67,7 @@ namespace ProcessAudioCapture
     [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IMMDevice
     {
-        [PreserveSig] int Activate(ref Guid iid, uint dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+        [PreserveSig] int Activate([In] ref Guid iid, [In] uint dwClsCtx, [In] IntPtr pActivationParams, out IntPtr ppInterface);
         [PreserveSig] int OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
         [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
         [PreserveSig] int GetState(out uint pdwState);
@@ -373,7 +373,7 @@ namespace ProcessAudioCapture
 
                         if (hrActivate == 0)
                         {
-                            handler.CompletedEvent.WaitOne(2000);
+                            handler.CompletedEvent.WaitOne(1500);
                             if (handler.ResultHResult == 0 && handler.ActivatedInterface != null)
                             {
                                 audioClient = (IAudioClient)handler.ActivatedInterface;
@@ -401,14 +401,15 @@ namespace ProcessAudioCapture
                         return;
                     }
 
-                    object pClientObj;
-                    int hrAct = defaultDevice.Activate(ref IID_IAudioClient, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out pClientObj);
-                    if (hrAct != 0 || pClientObj == null)
+                    IntPtr pClientPtr;
+                    Guid iidAudioClient = new Guid("1CB9A8F9-724E-4440-B515-1415F8C7F002");
+                    int hrAct = defaultDevice.Activate(ref iidAudioClient, 23 /* CLSCTX_ALL */, IntPtr.Zero, out pClientPtr);
+                    if (hrAct != 0 || pClientPtr == IntPtr.Zero)
                     {
                         Console.WriteLine(string.Format("[ProcessAudioCapture] Device.Activate failed: 0x{0:X}", hrAct));
                         return;
                     }
-                    audioClient = (IAudioClient)pClientObj;
+                    audioClient = (IAudioClient)Marshal.GetObjectForIUnknown(pClientPtr);
                 }
 
                 // Format setup (48kHz, 16-bit stereo PCM)
@@ -437,9 +438,15 @@ namespace ProcessAudioCapture
                     }
                 }
 
-                object pCaptureObj;
-                audioClient.GetService(ref IID_IAudioCaptureClient, out pCaptureObj);
-                IAudioCaptureClient captureClient = (IAudioCaptureClient)pCaptureObj;
+                IntPtr pCapturePtr;
+                Guid iidCapture = new Guid("C8ADBD64-E71E-48a0-A4DE-185C395CD317");
+                int hrSvc = audioClient.GetService(ref iidCapture, out pCapturePtr);
+                if (hrSvc != 0 || pCapturePtr == IntPtr.Zero)
+                {
+                    Console.WriteLine(string.Format("[ProcessAudioCapture] GetService(IAudioCaptureClient) failed: 0x{0:X}", hrSvc));
+                    return;
+                }
+                IAudioCaptureClient captureClient = (IAudioCaptureClient)Marshal.GetObjectForIUnknown(pCapturePtr);
 
                 audioClient.Start();
                 Console.WriteLine("[ProcessAudioCapture] Audio loopback active and streaming!");
