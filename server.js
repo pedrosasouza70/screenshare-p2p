@@ -16,15 +16,11 @@ const io = new Server(server, {
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Explicit route for presentation slides
-app.get('/slides', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'slides.html'));
-});
-
 // Fallback route to ensure index.html is always served
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
 
 
 // Store active rooms and members

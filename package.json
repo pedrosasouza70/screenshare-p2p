@@ -6,9 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "build-exe": "npx @neutralinojs/neu build --release && copy /b bin\\neutralino-win_x64.exe + dist\\StreamGrid\\resources.neu dist\\StreamGrid-Universal.exe"
-
-
+    "build-windows": "npx @neutralinojs/neu build && powershell -Command \"Get-ChildItem -Path dist\\StreamGrid -Include *linux*, *mac* | Remove-Item -Force; Compress-Archive -Path dist\\StreamGrid -DestinationPath dist\\StreamGrid-Windows.zip -Force\""
   },
 
   "dependencies": {
