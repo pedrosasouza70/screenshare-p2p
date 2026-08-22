@@ -252,8 +252,11 @@ namespace ProcessAudioCapture
                 }
                 sb.Append("]");
                 byte[] jsonBytes = Encoding.UTF8.GetBytes(sb.ToString());
-                res.ContentType = "application/json";
+                res.ContentType = "application/json; charset=utf-8";
+                res.ContentLength64 = jsonBytes.Length;
+                res.StatusCode = 200;
                 res.OutputStream.Write(jsonBytes, 0, jsonBytes.Length);
+                res.OutputStream.Flush();
                 res.Close();
                 return;
             }
@@ -266,12 +269,16 @@ namespace ProcessAudioCapture
                 {
                     StartProcessAudioCapture(pid);
                     byte[] okBytes = Encoding.UTF8.GetBytes("{\"status\":\"ok\",\"pid\":" + pid + "}");
-                    res.ContentType = "application/json";
+                    res.ContentType = "application/json; charset=utf-8";
+                    res.ContentLength64 = okBytes.Length;
+                    res.StatusCode = 200;
                     res.OutputStream.Write(okBytes, 0, okBytes.Length);
+                    res.OutputStream.Flush();
                 }
                 res.Close();
                 return;
             }
+
 
             if (req.Url.AbsolutePath == "/audio.wav" || req.Url.AbsolutePath == "/stream")
             {

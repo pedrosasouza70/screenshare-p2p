@@ -598,15 +598,42 @@ let isolatedAudioContext = null;
 let isolatedAudioElement = null;
 let isolatedAudioTrack = null;
 
+async function ensureAudioIsolatorRunning() {
+    try {
+        const testRes = await fetch('http://127.0.0.1:8989/processes', { mode: 'cors' });
+        if (testRes.ok) return true;
+    } catch(e) {}
+
+    // If not running and in Neutralino desktop, spawn it automatically
+    if (window.Neutralino && Neutralino.os) {
+        try {
+            console.log('[AudioIsolator] Spawning ProcessAudioCapture.exe...');
+            await Neutralino.os.execCommand('start "" "${NL_PATH}\\extensions\\audio-isolator\\ProcessAudioCapture.exe"');
+            await new Promise(r => setTimeout(r, 600));
+        } catch(err) {
+            console.warn('[AudioIsolator] Spawn command error:', err);
+        }
+    }
+    return false;
+}
+
 async function loadProcessList() {
     processSelect.innerHTML = '<option value="">Carregando janelas ativas...</option>';
+    
+    // Auto-ensure background service is up
+    await ensureAudioIsolatorRunning();
+
     try {
-        const res = await fetch('http://127.0.0.1:8989/processes', { mode: 'cors' });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch('http://127.0.0.1:8989/processes', { mode: 'cors', signal: controller.signal });
+        clearTimeout(timeoutId);
+
         const processes = await res.json();
         processSelect.innerHTML = '';
 
-        if (processes.length === 0) {
-            processSelect.innerHTML = '<option value="">Nenhum processo com janela encontrado</option>';
+        if (!processes || processes.length === 0) {
+            processSelect.innerHTML = '<option value="">Nenhum jogo/janela ativo com som encontrado</option>';
             return;
         }
 
@@ -619,10 +646,15 @@ async function loadProcessList() {
             processSelect.appendChild(opt);
         });
     } catch (e) {
-        processSelect.innerHTML = '<option value="">Audio Isolator não está ativo localmente</option>';
-        console.log('[AudioIsolator] Could not reach http://127.0.0.1:8989');
+        console.log('[AudioIsolator] Could not reach http://127.0.0.1:8989:', e);
+        if (window.Neutralino) {
+            processSelect.innerHTML = '<option value="">Iniciando módulo de áudio... Clique no botão 🔄 para atualizar</option>';
+        } else {
+            processSelect.innerHTML = '<option value="">Disponível no App Desktop (ou escolha "Aba do Chrome" na Web)</option>';
+        }
     }
 }
+
 
 if (btnIsolateAudio) {
     btnIsolateAudio.addEventListener('click', () => {
