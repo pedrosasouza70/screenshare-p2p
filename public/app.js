@@ -5,8 +5,13 @@ if (typeof Neutralino !== 'undefined') {
 const SERVER_URL = (window.location.protocol.startsWith('http') && !window.location.hostname.includes('localhost') && window.location.hostname !== '127.0.0.1')
     ? window.location.origin
     : 'https://screenshare-p2p.onrender.com';
-const socket = io(SERVER_URL);
 
+const socket = io(SERVER_URL, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000
+});
 
 // Redundant STUN server pool for high NAT/CGNAT penetration
 const rtcConfig = {
@@ -57,7 +62,8 @@ const btnFullscreen = document.getElementById('btnFullscreen');
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
-    const savedRoom = localStorage.getItem(STORAGE_KEY);
+    let savedRoom = null;
+    try { savedRoom = localStorage.getItem(STORAGE_KEY); } catch(e) {}
 
     if (roomParam) {
         inputRoomId.value = roomParam.trim().toLowerCase();
@@ -89,24 +95,32 @@ inputRoomId.addEventListener('keypress', (e) => {
 
 function joinRoom() {
     roomId = inputRoomId.value.trim().toLowerCase();
-    if (!roomId) return alert('Por favor, informe um código de sala!');
+    if (!roomId) {
+        inputRoomId.value = generateRandomRoomId();
+        roomId = inputRoomId.value;
+    }
 
     // Persist room in localStorage
-    localStorage.setItem(STORAGE_KEY, roomId);
+    try { localStorage.setItem(STORAGE_KEY, roomId); } catch(e) {}
 
     // Update browser URL query parameter if running on Web
     if (window.location.protocol.startsWith('http') && window.history.pushState) {
-        const newUrl = `${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
-        window.history.pushState({ path: newUrl }, '', newUrl);
+        try {
+            const newUrl = `${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
+            window.history.pushState({ path: newUrl }, '', newUrl);
+        } catch(e) {}
     }
 
     displayRoomId.textContent = roomId;
-    roomModal.style.setProperty('display', 'none', 'important');
+    roomModal.style.display = 'none';
     roomModal.classList.add('hidden');
     roomModal.hidden = true;
 
-    socket.emit('join-room', { roomId });
+    if (socket) {
+        socket.emit('join-room', { roomId });
+    }
 }
+
 
 // Change Room Button Handler
 if (btnChangeRoom) {
@@ -577,6 +591,7 @@ btnAudioGuide.addEventListener('click', () => {
 btnCloseAudioGuide.addEventListener('click', () => {
     audioGuideModal.hidden = true;
     audioGuideModal.style.display = 'none';
+});
 
 // Close modal on outside click
 audioGuideModal.addEventListener('click', (e) => {
@@ -585,5 +600,6 @@ audioGuideModal.addEventListener('click', (e) => {
         audioGuideModal.style.display = 'none';
     }
 });
+
 
 

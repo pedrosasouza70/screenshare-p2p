@@ -8,9 +8,11 @@
     "dev": "node --watch server.js",
     "build-windows": "npx @neutralinojs/neu build && powershell -Command \"Get-ChildItem -Path dist\\StreamGrid -Include *linux*, *mac* | Remove-Item -Force; Compress-Archive -Path dist\\StreamGrid -DestinationPath dist\\StreamGrid-Windows.zip -Force\""
   },
-
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }
