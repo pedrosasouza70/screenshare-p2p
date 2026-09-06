@@ -9,16 +9,9 @@
   "enableNativeAPI": true,
   "tokenSecurity": "one-time",
   "documentRoot": "/public/",
-  "extensions": [
-    {
-      "id": "js.neutralino.audioIsolator",
-      "commandWin": "${NL_PATH}/extensions/audio-isolator/ProcessAudioCapture.exe"
-    }
-  ],
   "cli": {
     "binaryName": "StreamGrid",
     "resourcesPath": "/public/",
-    "extensionsPath": "/extensions/",
     "clientLibrary": "/public/js/neutralino.js",
     "binaryVersion": "5.6.0",
     "clientVersion": "5.6.0"
