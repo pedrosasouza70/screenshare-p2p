@@ -402,12 +402,11 @@ btnStartShareBig.addEventListener('click', startScreenShare);
 
 async function startScreenShare() {
     try {
-        const constraints = {
+        const primaryConstraints = {
             video: {
                 width: { ideal: 1920, max: 1920 },
                 height: { ideal: 1080, max: 1080 },
-                frameRate: { ideal: 60, max: 60 },
-                displaySurface: 'monitor'
+                frameRate: { ideal: 60, max: 60 }
             },
             audio: {
                 echoCancellation: false,
@@ -416,7 +415,28 @@ async function startScreenShare() {
             }
         };
 
-        localStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+        try {
+            localStream = await navigator.mediaDevices.getDisplayMedia(primaryConstraints);
+        } catch (mediaErr) {
+            console.warn('[Capture] Primary capture failed:', mediaErr);
+            if (mediaErr.name === 'NotAllowedError') {
+                return; // User cancelled
+            }
+            // Fallback 1: Standard capture
+            try {
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: { ideal: 60 } },
+                    audio: true
+                });
+            } catch (fallbackErr) {
+                if (fallbackErr.name === 'NotAllowedError') return;
+                // Fallback 2: Video-only if audio driver is exclusively locked
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: false
+                });
+            }
+        }
 
         // Add Local Tile preview in Grid
         const localTile = createStreamTile('local', localStream, 'Você (Sua Tela)', true);
@@ -444,16 +464,16 @@ async function startScreenShare() {
             socket.emit('signal', { targetId: peerId, signal: peerObj.pc.localDescription });
         }
 
-
         socket.emit('stream-state', { roomId, state: 'started' });
 
     } catch (err) {
         console.error('[Capture] Error getting display media:', err);
         if (err.name !== 'NotAllowedError') {
-            alert('Não foi possível iniciar o compartilhamento de tela: ' + err.message);
+            alert('Não foi possível iniciar o compartilhamento: ' + err.message);
         }
     }
 }
+
 
 // Stop Screen Share
 btnStopShare.addEventListener('click', stopScreenShare);
