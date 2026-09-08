@@ -142,6 +142,20 @@
                     <button class="btn-close" id="btnCloseAudioGuide"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
+                    <!-- Official Download Button Card -->
+                    <div class="guide-download-card">
+                        <div class="download-info">
+                            <i class="fa-solid fa-download download-icon"></i>
+                            <div>
+                                <strong>VB-Audio Virtual Cable (Grátis)</strong>
+                                <span>Driver oficial para Windows 10 e 11 (64-bit)</span>
+                            </div>
+                        </div>
+                        <a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Site Oficial (vb-audio.com)
+                        </a>
+                    </div>
+
                     <!-- Why it's necessary callout -->
                     <div class="guide-callout">
                         <div class="guide-callout-icon">
@@ -149,28 +163,35 @@
                         </div>
                         <div class="guide-callout-text">
                             <strong>Por que o VB-Audio é necessário?</strong>
-                            <p>O Windows normalmente mistura todo o som do PC em uma saída só (jogo + vozes do Discord). O <strong>VB-Audio Virtual Cable</strong> cria uma rota separada: seu jogo vai para a transmissão com áudio limpo, enquanto a voz do Discord vai direto para o seu fone sem vazar para quem assiste!</p>
+                            <p>O Windows normalmente mistura todo o som do computador em uma única saída (jogo + navegadores + voz dos amigos no Discord). O <strong>VB-Audio Cable</strong> cria uma ponte virtual separada: seu jogo toca dentro do cabo (que o StreamGrid captura), enquanto o Discord toca direto no seu fone físico sem vazar para a live!</p>
                         </div>
                     </div>
 
-                    <h4 class="guide-subtitle"><i class="fa-solid fa-list-check"></i> Configuração em 3 Passos:</h4>
+                    <h4 class="guide-subtitle"><i class="fa-solid fa-list-check"></i> Passo a Passo Completo:</h4>
                     <ol class="steps-list">
                         <li>
                             <span class="step-num">1</span>
                             <div>
-                                <strong>Windows: Saída de som padrão</strong>
-                                <p>Clique no ícone de som 🔊 na barra de tarefas e selecione <code>CABLE Input (VB-Audio)</code> como dispositivo de saída padrão.</p>
+                                <strong>Instalação (Apenas na primeira vez)</strong>
+                                <p>Baixe o arquivo <code>.zip</code> no site oficial, extraia os arquivos, clique com botão direito em <code>VBCABLE_Setup_x64.exe</code> e selecione <em>"Executar como Administrador"</em>. Reinicie o computador se for solicitado.</p>
                             </div>
                         </li>
                         <li>
                             <span class="step-num">2</span>
+                            <div>
+                                <strong>Windows: Saída padrão para o Jogo</strong>
+                                <p>Clique no ícone de som 🔊 na barra de tarefas (ou <em>Configurações &gt; Som</em>) e selecione <code>CABLE Input (VB-Audio Virtual Cable)</code> como saída padrão.</p>
+                            </div>
+                        </li>
+                        <li>
+                            <span class="step-num">3</span>
                             <div>
                                 <strong>Discord: Saída direta no seu fone</strong>
                                 <p>No Discord, vá em <em>Configurações ⚙️ &gt; Voz e Vídeo &gt; Dispositivo de Saída</em> e selecione seu <strong>Fone/Alto-falantes real</strong> (não use "Default").</p>
                             </div>
                         </li>
                         <li>
-                            <span class="step-num">3</span>
+                            <span class="step-num">4</span>
                             <div>
                                 <strong>Ouvir o jogo nos seus fones</strong>
                                 <p>Abra <em>Sons &gt; Gravação &gt; CABLE Output &gt; Propriedades &gt; Ouvir</em>, marque ✅ <strong>"Ouvir este dispositivo"</strong> e selecione seu fone real.</p>
