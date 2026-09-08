@@ -949,10 +949,18 @@ body {
     margin-top: 2px;
 }
 
+.guide-substep .substep-title {
+    color: var(--text-main);
+    font-size: 0.88rem;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 3px;
+}
+
 .guide-substep strong {
     color: var(--text-main);
-    display: block;
-    margin-bottom: 2px;
+    font-weight: 700;
+    display: inline;
 }
 
 .guide-substep p {
@@ -978,7 +986,7 @@ body {
     flex-shrink: 0;
 }
 
-.guide-shortcut-banner span {
+.guide-shortcut-banner .shortcut-label {
     font-size: 0.72rem;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -986,11 +994,12 @@ body {
     display: block;
 }
 
-.guide-shortcut-banner strong {
+.guide-shortcut-banner .shortcut-text {
     font-size: 0.88rem;
     color: var(--text-main);
+    font-weight: 700;
     display: block;
-    margin: 2px 0;
+    margin: 3px 0;
 }
 
 .guide-shortcut-banner p {
