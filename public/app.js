@@ -408,43 +408,75 @@ async function startScreenShare() {
             frameRate: { ideal: 60, max: 60 }
         };
 
-        // --- Step 1: Detect VB-Audio CABLE Output (appears as audio input) ---
+        // --- Step 1: Detect VB-Audio CABLE Output ---
         let cableOutputId = null;
         try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const cableOutput = devices.find(d =>
-                d.kind === 'audioinput' &&
-                d.label.toLowerCase().includes('cable output')
-            );
+            let devices = await navigator.mediaDevices.enumerateDevices();
+
+            // If labels are empty, request mic permission to reveal device names
+            const hasEmptyLabels = devices.some(d => d.deviceId && d.label === '');
+            if (hasEmptyLabels) {
+                console.log('[Audio] Device labels hidden, requesting mic permission...');
+                try {
+                    const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    tempStream.getTracks().forEach(t => t.stop());
+                    devices = await navigator.mediaDevices.enumerateDevices();
+                } catch (permErr) {
+                    console.warn('[Audio] Mic permission denied:', permErr.message);
+                }
+            }
+
+            // Search for VB-Cable Output with multiple name patterns
+            const cableOutput = devices.find(d => {
+                if (d.kind !== 'audioinput') return false;
+                const label = d.label.toLowerCase();
+                return label.includes('cable output') ||
+                       (label.includes('vb-audio') && label.includes('cable')) ||
+                       (label.includes('virtual cable') && !label.includes('16ch'));
+            });
+
             if (cableOutput) {
                 cableOutputId = cableOutput.deviceId;
-                console.log('[Audio] VB-Cable detected:', cableOutput.label);
+                console.log('[Audio] ✅ VB-Cable detected:', cableOutput.label);
             } else {
-                console.log('[Audio] VB-Cable not found, will use system audio');
+                // Log all audio inputs for debugging
+                const audioInputs = devices.filter(d => d.kind === 'audioinput');
+                console.log('[Audio] VB-Cable not found. Available audio inputs:', 
+                    audioInputs.map(d => d.label || d.deviceId).join(', '));
             }
         } catch (e) {
             console.warn('[Audio] Device enumeration failed:', e);
         }
 
+        // Also check localStorage for a saved preference
+        if (!cableOutputId) {
+            const savedId = localStorage.getItem('streamgrid_cable_device');
+            if (savedId) {
+                cableOutputId = savedId;
+                console.log('[Audio] Using saved CABLE device from localStorage');
+            }
+        }
+
         // --- Step 2: Capture screen ---
         let screenStream;
 
-        if (cableOutputId) {
-            // VB-Cable mode: capture VIDEO ONLY (avoids getDisplayMedia audio bug with VB-Cable)
-            try {
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: videoConstraints,
-                    audio: false
-                });
-            } catch (err) {
-                if (err.name === 'NotAllowedError') return;
-                throw err;
-            }
+        // ALWAYS capture video-only first (avoids getDisplayMedia audio bug with VB-Cable)
+        // This ensures the picker only shows ONCE regardless of audio device
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: videoConstraints,
+                audio: false
+            });
+        } catch (err) {
+            if (err.name === 'NotAllowedError') return;
+            throw err;
+        }
 
-            // Capture audio DIRECTLY from CABLE Output via getUserMedia
-            // This captures ONLY what goes through the cable (game audio)
-            // Discord audio on speakers is NOT captured = perfect isolation
-            let audioTrack = null;
+        // --- Step 3: Capture audio separately ---
+        let audioTrack = null;
+
+        if (cableOutputId) {
+            // VB-Cable mode: capture from CABLE Output (isolated, no Discord)
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -457,22 +489,25 @@ async function startScreenShare() {
                     }
                 });
                 audioTrack = audioStream.getAudioTracks()[0];
-                console.log('[Audio] ✅ Capturing isolated audio from VB-Cable Output');
+                // Save device ID for next time
+                localStorage.setItem('streamgrid_cable_device', cableOutputId);
+                console.log('[Audio] ✅ Capturing isolated audio from VB-Cable');
             } catch (audioErr) {
-                console.warn('[Audio] VB-Cable audio capture failed:', audioErr.message);
+                console.warn('[Audio] VB-Cable capture failed:', audioErr.message);
+                // Clear saved preference if device no longer works
+                localStorage.removeItem('streamgrid_cable_device');
             }
+        }
 
-            // Merge video + isolated audio into one stream
-            if (audioTrack) {
-                localStream = new MediaStream([screenStream.getVideoTracks()[0], audioTrack]);
-            } else {
-                localStream = screenStream;
-                console.warn('[Audio] Stream will have no audio (VB-Cable capture failed)');
-            }
-
-        } else {
-            // Standard mode (no VB-Cable): use getDisplayMedia with system audio
+        // If no VB-Cable audio, try to get system audio by re-capturing WITH audio
+        // But only if we DON'T have VB-Cable as default (to avoid the picker bug)
+        if (!audioTrack && !cableOutputId) {
             try {
+                // Stop the video-only stream and re-capture with audio
+                const videoOnlyTrack = screenStream.getVideoTracks()[0];
+                const displayId = videoOnlyTrack.getSettings().displaySurface;
+                screenStream.getTracks().forEach(t => t.stop());
+
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
                     video: videoConstraints,
                     audio: {
@@ -481,23 +516,36 @@ async function startScreenShare() {
                         autoGainControl: false
                     }
                 });
-            } catch (mediaErr) {
-                if (mediaErr.name === 'NotAllowedError') return;
-                console.warn('[Capture] Audio capture failed, trying video-only:', mediaErr.message);
+                // Check if we actually got audio
+                if (screenStream.getAudioTracks().length > 0) {
+                    audioTrack = screenStream.getAudioTracks()[0];
+                    console.log('[Audio] ✅ System audio captured via getDisplayMedia');
+                }
+            } catch (reErr) {
+                if (reErr.name === 'NotAllowedError') return;
+                console.warn('[Audio] System audio fallback failed:', reErr.message);
+                // Re-capture video-only as last resort
                 try {
                     screenStream = await navigator.mediaDevices.getDisplayMedia({
                         video: videoConstraints,
                         audio: false
                     });
-                } catch (fallbackErr) {
-                    if (fallbackErr.name === 'NotAllowedError') return;
-                    throw fallbackErr;
+                } catch (lastErr) {
+                    if (lastErr.name === 'NotAllowedError') return;
+                    throw lastErr;
                 }
             }
+        }
+
+        // --- Step 4: Build final stream ---
+        if (audioTrack && !screenStream.getAudioTracks().includes(audioTrack)) {
+            // Merge video from screen + audio from CABLE
+            localStream = new MediaStream([screenStream.getVideoTracks()[0], audioTrack]);
+        } else {
             localStream = screenStream;
         }
 
-        // --- Step 3: Add Local Tile preview in Grid ---
+        // --- Step 5: Add Local Tile preview in Grid ---
         const localTile = createStreamTile('local', localStream, 'Você (Sua Tela)', true);
         localTile.id = 'localStreamTile';
         streamGrid.appendChild(localTile);
@@ -511,7 +559,7 @@ async function startScreenShare() {
             stopScreenShare();
         };
 
-        // --- Step 4: Send stream to all peers ---
+        // --- Step 6: Send stream to all peers ---
         for (const [peerId, peerObj] of peers.entries()) {
             addLocalTracksToPC(peerObj.pc);
             let offer = await peerObj.pc.createOffer();
@@ -526,8 +574,8 @@ async function startScreenShare() {
         socket.emit('stream-state', { roomId, state: 'started' });
 
         // Log audio status
-        const audioTracks = localStream.getAudioTracks();
-        console.log(`[Capture] ✅ Sharing started | Video: yes | Audio: ${audioTracks.length > 0 ? 'yes (' + audioTracks[0].label + ')' : 'no'}`);
+        const finalAudioTracks = localStream.getAudioTracks();
+        console.log(`[Capture] ✅ Sharing started | Video: yes | Audio: ${finalAudioTracks.length > 0 ? 'yes (' + finalAudioTracks[0].label + ')' : 'no'}`);
 
     } catch (err) {
         console.error('[Capture] Error getting display media:', err);
