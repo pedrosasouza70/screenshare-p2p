@@ -868,7 +868,7 @@ body {
 
 .guide-summary-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 8px;
     margin-top: 10px;
 }
@@ -1067,6 +1067,63 @@ kbd {
 [data-theme="light"] .badge-admin {
     color: #b91c1c;
     background: #fee2e2;
+}
+
+.badge-essential {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(239, 68, 68, 0.16);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+[data-theme="light"] .badge-essential {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+.guide-section-warning {
+    border-color: rgba(239, 68, 68, 0.4) !important;
+    background: rgba(239, 68, 68, 0.04) !important;
+}
+
+[data-theme="light"] .guide-section-warning {
+    border-color: #fca5a5 !important;
+    background: #fff8f8 !important;
+}
+
+.guide-warning-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    font-size: 0.82rem;
+    color: #fca5a5;
+    margin: 12px 0;
+    line-height: 1.45;
+}
+
+[data-theme="light"] .guide-warning-box {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.guide-warning-box i {
+    font-size: 1.25rem;
+    color: #ef4444;
+    margin-top: 2px;
+    flex-shrink: 0;
 }
 
 .text-danger {

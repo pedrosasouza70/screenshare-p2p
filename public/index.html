@@ -303,18 +303,33 @@
                         </div>
                     </div>
 
-                    <!-- Step 4: Dicas Pro e Resolução de Problemas -->
-                    <div class="guide-section">
-                        <h4 class="guide-section-title">
-                            <span class="step-num">4</span> Dicas Avançadas (Evitar chiados ou cortes)
+                    <!-- Step 4: Desativar Modo Exclusivo (OBRIGATÓRIO / ESSENCIAL) -->
+                    <div class="guide-section guide-section-warning">
+                        <h4 class="guide-section-title text-danger">
+                            <span class="step-num" style="background: var(--danger);">4</span> 
+                            Desativar Modo Exclusivo 
+                            <span class="badge-essential"><i class="fa-solid fa-triangle-exclamation"></i> ESSENCIAL</span>
                         </h4>
+
+                        <div class="guide-warning-box">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            <div>
+                                <strong>IMPORTANTE: Se o modo exclusivo não for desativado, a tela NÃO compartilha!</strong>
+                                <p>O Windows bloqueia o compartilhamento de tela com áudio se algum aplicativo estiver com controle exclusivo do dispositivo. Para transmitir sem erro, você <strong>DEVE</strong> desmarcar o modo exclusivo nos 3 dispositivos abaixo:</p>
+                            </div>
+                        </div>
 
                         <div class="guide-substeps">
                             <div class="guide-substep">
                                 <span class="substep-bullet">4.1</span>
                                 <div>
-                                    <strong>Desativar Modo Exclusivo (Recomendado)</strong>
-                                    <p>No Painel de Som (<code>mmsys.cpl</code>), abra as <em>Propriedades</em> de <code>CABLE Input</code> e <code>CABLE Output</code>, vá na aba <strong>Avançado</strong> e desmarque a caixinha: <em>"Permitir que aplicativos assumam controle exclusivo deste dispositivo"</em>.</p>
+                                    <strong>Desmarque o controle exclusivo nestes 3 lugares:</strong>
+                                    <p>No Painel de Som (<kbd>Win</kbd> + <kbd>R</kbd> &gt; <code>mmsys.cpl</code>):</p>
+                                    <ul class="guide-checklist">
+                                        <li>1. <strong>Reprodução</strong> &gt; Botão direito em <code>CABLE Input</code> &gt; <em>Propriedades</em> &gt; aba <strong>Avançado</strong> &gt; <strong class="text-danger">Desmarque</strong>: <em>"Permitir que aplicativos assumam controle exclusivo deste dispositivo"</em>.</li>
+                                        <li>2. <strong>Gravação</strong> &gt; Botão direito em <code>CABLE Output</code> &gt; <em>Propriedades</em> &gt; aba <strong>Avançado</strong> &gt; <strong class="text-danger">Desmarque</strong>: <em>"Permitir que aplicativos assumam controle exclusivo deste dispositivo"</em>.</li>
+                                        <li>3. <strong>Reprodução</strong> &gt; Botão direito no seu <strong>Fone/Alto-falantes</strong> &gt; <em>Propriedades</em> &gt; aba <strong>Avançado</strong> &gt; <strong class="text-danger">Desmarque</strong>: <em>"Permitir que aplicativos assumam controle exclusivo deste dispositivo"</em>.</li>
+                                    </ul>
                                 </div>
                             </div>
 
@@ -322,7 +337,7 @@
                                 <span class="substep-bullet">4.2</span>
                                 <div>
                                     <strong>Taxa de Amostragem (48000 Hz)</strong>
-                                    <p>Também na aba <em>Avançado</em>, deixe o formato padrão em <strong>2 canais, 24 bits, 48000 Hz (Qualidade de Estúdio)</strong> tanto no CABLE Input quanto no seu Fone Real para garantir som cristalino sem estalos.</p>
+                                    <p>Também na aba <em>Avançado</em> de cada dispositivo, selecione o formato <strong>2 canais, 24 bits, 48000 Hz (Qualidade de Estúdio)</strong> para garantir que todos fiquem sincronizados e sem estalos.</p>
                                 </div>
                             </div>
                         </div>
@@ -344,6 +359,11 @@
                             <span class="pill-label">CABLE Output</span>
                             <span class="pill-val"><i class="fa-solid fa-ear-listen"></i> Ouvir: Ativado</span>
                             <span class="pill-note">Toca no seu fone</span>
+                        </div>
+                        <div class="summary-pill" style="border-color: rgba(239, 68, 68, 0.4);">
+                            <span class="pill-label" style="color: #f87171;">Modo Exclusivo</span>
+                            <span class="pill-val" style="color: #f87171;"><i class="fa-solid fa-ban"></i> Desativado</span>
+                            <span class="pill-note">Essencial p/ tela</span>
                         </div>
                     </div>
                 </div>
