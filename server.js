@@ -10,7 +10,9 @@ const io = new Server(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
-    }
+    },
+    pingInterval: 5000,
+    pingTimeout: 7000
 });
 
 // Serve static files from public directory
@@ -27,7 +29,7 @@ const rooms = new Map();
 io.on('connection', (socket) => {
     console.log(`[+] Client connected: ${socket.id}`);
 
-    socket.on('join-room', ({ roomId }) => {
+    socket.on('join-room', ({ roomId, clientId }) => {
         const cleanRoomId = (roomId || '').trim().toLowerCase();
         if (!cleanRoomId) return;
 
@@ -35,7 +37,7 @@ io.on('connection', (socket) => {
 
         if (!room) {
             room = {
-                members: new Set(),
+                members: new Map(), // socketId -> clientId
                 activeStreams: new Set()
             };
             rooms.set(cleanRoomId, room);
@@ -46,11 +48,28 @@ io.on('connection', (socket) => {
             leaveCurrentRoom(socket);
         }
 
+        // Evict stale/ghost socket if this client refreshed (F5) or reconnected
+        if (clientId) {
+            for (const [existingSocketId, existingClientId] of room.members.entries()) {
+                if (existingClientId === clientId && existingSocketId !== socket.id) {
+                    console.log(`[Evict] Replacing stale socket ${existingSocketId} with new socket ${socket.id} for client ${clientId}`);
+                    const oldSocket = io.sockets.sockets.get(existingSocketId);
+                    if (oldSocket) {
+                        leaveCurrentRoom(oldSocket);
+                        try { oldSocket.disconnect(true); } catch(e) {}
+                    } else {
+                        room.members.delete(existingSocketId);
+                        room.activeStreams.delete(existingSocketId);
+                    }
+                }
+            }
+        }
+
         socket.join(cleanRoomId);
         socket.roomId = cleanRoomId;
-        room.members.add(socket.id);
+        room.members.set(socket.id, clientId || socket.id);
 
-        const otherUsers = Array.from(room.members).filter(id => id !== socket.id);
+        const otherUsers = Array.from(room.members.keys()).filter(id => id !== socket.id);
         const activeStreams = Array.from(room.activeStreams).filter(id => id !== socket.id);
 
         console.log(`[->] Socket ${socket.id} joined room "${cleanRoomId}" (Members: ${room.members.size})`);
@@ -59,7 +78,8 @@ io.on('connection', (socket) => {
         socket.emit('room-users', {
             users: otherUsers,
             activeStreams: activeStreams,
-            socketId: socket.id
+            socketId: socket.id,
+            memberCount: room.members.size
         });
 
         // Notify existing members about new user
@@ -68,7 +88,7 @@ io.on('connection', (socket) => {
             memberCount: room.members.size
         });
 
-        // Broadcast updated room member count
+        // Broadcast updated room member count to all
         io.to(cleanRoomId).emit('room-status', {
             memberCount: room.members.size
         });

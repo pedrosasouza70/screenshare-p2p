@@ -28,6 +28,19 @@ const rtcConfig = {
 
 // Application State
 const STORAGE_KEY = 'streamgrid_last_room';
+const CLIENT_ID_KEY = 'streamgrid_client_id';
+
+let clientId = '';
+try {
+    clientId = localStorage.getItem(CLIENT_ID_KEY);
+    if (!clientId) {
+        clientId = 'c_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+        localStorage.setItem(CLIENT_ID_KEY, clientId);
+    }
+} catch(e) {
+    clientId = 'c_' + Math.random().toString(36).substr(2, 9);
+}
+
 let roomId = '';
 let myId = '';
 let localStream = null;
@@ -197,7 +210,7 @@ function joinRoom() {
     roomModal.hidden = true;
 
     if (socket) {
-        socket.emit('join-room', { roomId });
+        socket.emit('join-room', { roomId, clientId });
     }
 }
 
@@ -214,10 +227,27 @@ if (btnChangeRoom) {
     });
 }
 
+// Socket Lifecycle Events
+socket.on('connect', () => {
+    myId = socket.id;
+    console.log('[Socket] Connected to server. Socket ID:', myId);
+    if (roomId) {
+        console.log('[Socket] Joining room on connect:', roomId);
+        socket.emit('join-room', { roomId, clientId });
+    }
+});
+
+socket.on('disconnect', (reason) => {
+    console.warn('[Socket] Disconnected from server:', reason);
+});
+
 // Socket Events
-socket.on('room-users', async ({ users, activeStreams, socketId }) => {
+socket.on('room-users', async ({ users, activeStreams, socketId, memberCount }) => {
     myId = socketId;
-    console.log('[Socket] Connected. My ID:', myId, 'Other users:', users, 'Active streams:', activeStreams);
+    console.log('[Socket] Joined room. My ID:', myId, 'Other users:', users, 'Active streams:', activeStreams);
+
+    // Sync member count immediately for the joiner
+    updateMemberCount(memberCount || (users.length + 1));
 
     // Initialize peer connections for existing users
     users.forEach(peerId => {
