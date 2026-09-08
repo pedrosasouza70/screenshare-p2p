@@ -13,17 +13,31 @@ const socket = io(SERVER_URL, {
     reconnectionDelay: 1000
 });
 
-// Redundant STUN server pool for high NAT/CGNAT penetration
+// STUN + TURN servers for high NAT/CGNAT penetration (essential for Brazilian fiber ISPs)
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
+        { urls: 'stun:global.stun.twilio.com:3478' },
+        // Free TURN relay (Metered.ca Open Relay) — fallback when STUN fails behind symmetric NAT/CGNAT
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 4
 };
 
 // Application State
@@ -881,9 +895,9 @@ function optimizeSDP(sdp) {
     for (let line of lines) {
         newLines.push(line);
 
-        // Opus Stereo & High Bitrate Audio (320kbps)
+        // Opus Stereo with efficient bitrate (128kbps — clear game audio without wasting bandwidth)
         if (line.startsWith('a=fmtp:') && line.includes('opus/48000')) {
-            newLines[newLines.length - 1] = line + ';stereo=1;sprop-stereo=1;maxaveragebitrate=320000';
+            newLines[newLines.length - 1] = line + ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000';
         }
 
         // Balanced 1080p60 Bitrate Tuning: start at 3.5 Mbps, adapt up to 6 Mbps max with 1.8 Mbps floor
@@ -966,6 +980,97 @@ function configureSenderParams(sender, kind) {
             }
             sender.setParameters(params).catch(() => {});
         } catch (e) {}
+    }
+}
+
+// ========== Adaptive Bitrate Quality Monitor (getStats) ==========
+let qualityMonitorInterval = null;
+
+function startQualityMonitor() {
+    if (qualityMonitorInterval) return;
+    console.log('[QoS] ▶ Quality monitor started');
+
+    qualityMonitorInterval = setInterval(async () => {
+        if (!localStream) { stopQualityMonitor(); return; }
+
+        for (const [peerId, peerObj] of peers.entries()) {
+            if (!peerObj.pc || peerObj.pc.connectionState === 'closed') continue;
+            try {
+                const stats = await peerObj.pc.getStats();
+                let availableBitrate = null;
+                let qualityLimitation = 'none';
+                let actualFps = 0;
+                let rtt = 0;
+                let bytesSent = 0;
+
+                stats.forEach(report => {
+                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                        if (report.availableOutgoingBitrate != null) {
+                            availableBitrate = report.availableOutgoingBitrate;
+                        }
+                        if (report.currentRoundTripTime != null) {
+                            rtt = report.currentRoundTripTime;
+                        }
+                    }
+                    if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                        actualFps = report.framesPerSecond || 0;
+                        qualityLimitation = report.qualityLimitationReason || 'none';
+                        bytesSent = report.bytesSent || 0;
+                    }
+                });
+
+                // Only adapt if we have bandwidth data from the browser
+                if (availableBitrate === null) continue;
+
+                const videoSender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (!videoSender) continue;
+
+                const params = videoSender.getParameters();
+                if (!params.encodings || !params.encodings[0]) continue;
+
+                const current = params.encodings[0].maxBitrate || 6000000;
+                let targetBitrate;
+
+                if (availableBitrate < 1200000) {
+                    // Critical: below 1.2 Mbps — emergency floor
+                    targetBitrate = 800000;
+                } else if (availableBitrate < 2500000) {
+                    // Low: use 65% of available to leave headroom
+                    targetBitrate = Math.floor(availableBitrate * 0.65);
+                } else if (availableBitrate < 5000000) {
+                    // Medium: use 75% of available
+                    targetBitrate = Math.floor(availableBitrate * 0.75);
+                } else {
+                    // Good bandwidth: cap at 6 Mbps ceiling
+                    targetBitrate = 6000000;
+                }
+
+                // Smooth ramp: move 30% toward target per cycle (avoids oscillation)
+                const smoothed = Math.floor(current + (targetBitrate - current) * 0.3);
+                const clamped = Math.max(800000, Math.min(6000000, smoothed));
+
+                // Only apply if change is meaningful (> 100kbps difference)
+                if (Math.abs(clamped - current) > 100000) {
+                    params.encodings[0].maxBitrate = clamped;
+                    videoSender.setParameters(params).catch(() => {});
+                    console.log(
+                        `[QoS] ${peerId.slice(0,6)}: ` +
+                        `bitrate ${(current/1e6).toFixed(1)}→${(clamped/1e6).toFixed(1)} Mbps | ` +
+                        `available: ${(availableBitrate/1e6).toFixed(1)} Mbps | ` +
+                        `fps: ${actualFps} | limit: ${qualityLimitation} | ` +
+                        `rtt: ${(rtt*1000).toFixed(0)}ms`
+                    );
+                }
+            } catch (e) { /* peer may have disconnected mid-stats */ }
+        }
+    }, 4000); // Poll every 4 seconds
+}
+
+function stopQualityMonitor() {
+    if (qualityMonitorInterval) {
+        clearInterval(qualityMonitorInterval);
+        qualityMonitorInterval = null;
+        console.log('[QoS] ■ Quality monitor stopped');
     }
 }
 
@@ -1145,6 +1250,7 @@ async function startScreenShare() {
         }
 
         socket.emit('stream-state', { roomId, state: 'started' });
+        startQualityMonitor();
 
         // Log audio status
         const finalAudioTracks = localStream.getAudioTracks();
@@ -1163,6 +1269,8 @@ async function startScreenShare() {
 btnStopShare.addEventListener('click', stopScreenShare);
 
 function stopScreenShare() {
+    stopQualityMonitor();
+
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
