@@ -598,17 +598,7 @@ socket.on('room-users', async ({ users, activeStreams, socketId, memberCount, ha
     if (localStream) {
         for (const [peerId, peerObj] of peers.entries()) {
             addLocalTracksToPC(peerObj.pc);
-            try {
-                let offer = await peerObj.pc.createOffer();
-                offer = new RTCSessionDescription({
-                    type: offer.type,
-                    sdp: optimizeSDP(offer.sdp)
-                });
-                await peerObj.pc.setLocalDescription(offer);
-                socket.emit('signal', { targetId: peerId, signal: peerObj.pc.localDescription });
-            } catch (e) {
-                console.error('[WebRTC] Error sending offer to existing peer:', e);
-            }
+            sendOffer(peerId);
         }
     }
 });
@@ -619,20 +609,10 @@ socket.on('user-joined', async ({ socketId, memberCount }) => {
     updateMemberCount(memberCount);
 
     // Sincronização Automática (Late-Joiner Sync):
-    // Se eu já estiver compartilhando a tela, negoceio imediatamente com o novo participante!
+    // Se eu já estiver compartilhando a tela, envio oferta com minha transmissão ao novo usuário!
     if (localStream) {
         addLocalTracksToPC(pc);
-        try {
-            let offer = await pc.createOffer();
-            offer = new RTCSessionDescription({
-                type: offer.type,
-                sdp: optimizeSDP(offer.sdp)
-            });
-            await pc.setLocalDescription(offer);
-            socket.emit('signal', { targetId: socketId, signal: pc.localDescription });
-        } catch (e) {
-            console.error('[WebRTC] Error sending late-joiner offer:', e);
-        }
+        sendOffer(socketId);
     }
 });
 
@@ -650,25 +630,66 @@ function updateMemberCount(count) {
     memberCountText.textContent = `${count} ${count === 1 ? 'Participante' : 'Participantes'}`;
 }
 
-// Targeted WebRTC Signal Receiver with Candidate Queueing
+// Perfect Negotiation Offer Dispatcher (Avoids Glare / Dual-Offer collisions)
+async function sendOffer(peerId) {
+    const peerObj = peers.get(peerId);
+    if (!peerObj || !peerObj.pc) return;
+    const pc = peerObj.pc;
+
+    try {
+        peerObj.makingOffer = true;
+        let offer = await pc.createOffer();
+        if (pc.signalingState !== 'stable') return;
+        offer = new RTCSessionDescription({
+            type: offer.type,
+            sdp: optimizeSDP(offer.sdp)
+        });
+        await pc.setLocalDescription(offer);
+        socket.emit('signal', { targetId: peerId, signal: pc.localDescription });
+    } catch (err) {
+        console.error('[WebRTC] Error sending offer to peer:', peerId, err);
+    } finally {
+        peerObj.makingOffer = false;
+    }
+}
+
+// Targeted WebRTC Signal Receiver with Perfect Negotiation & Candidate Queueing
 socket.on('signal', async ({ senderId, signal }) => {
     const pc = getOrCreatePeerConnection(senderId);
     const peerObj = peers.get(senderId);
+    if (!peerObj) return;
 
     try {
         if (signal.type === 'offer') {
-            if (peerObj) peerObj.isRemoteDescriptionSet = false;
-            await pc.setRemoteDescription(new RTCSessionDescription(signal));
-            if (peerObj) {
-                peerObj.isRemoteDescriptionSet = true;
-                // Flush buffered candidates
-                while (peerObj.iceCandidateQueue.length > 0) {
-                    const cand = peerObj.iceCandidateQueue.shift();
-                    try { await pc.addIceCandidate(cand); } catch(e) {}
+            // Check for offer collision (glare)
+            const offerCollision = Boolean(peerObj.makingOffer || pc.signalingState !== 'stable');
+            peerObj.ignoreOffer = !peerObj.isPolite && offerCollision;
+
+            if (peerObj.ignoreOffer) {
+                console.warn('[WebRTC] Glare collision: Impolite peer ignoring offer from:', senderId);
+                return;
+            }
+
+            if (offerCollision) {
+                console.log('[WebRTC] Glare collision: Polite peer rolling back for:', senderId);
+                try {
+                    await pc.setLocalDescription({ type: 'rollback' });
+                } catch (e) {
+                    console.warn('[WebRTC] Rollback error:', e);
                 }
             }
 
-            // If I am broadcasting, attach my tracks to this peer connection
+            peerObj.isRemoteDescriptionSet = false;
+            await pc.setRemoteDescription(new RTCSessionDescription(signal));
+            peerObj.isRemoteDescriptionSet = true;
+
+            // Flush buffered candidates
+            while (peerObj.iceCandidateQueue.length > 0) {
+                const cand = peerObj.iceCandidateQueue.shift();
+                try { await pc.addIceCandidate(cand); } catch(e) {}
+            }
+
+            // If I am broadcasting, ensure my tracks are attached to this peer connection
             if (localStream) {
                 addLocalTracksToPC(pc);
             }
@@ -682,8 +703,8 @@ socket.on('signal', async ({ senderId, signal }) => {
             socket.emit('signal', { targetId: senderId, signal: pc.localDescription });
 
         } else if (signal.type === 'answer') {
-            await pc.setRemoteDescription(new RTCSessionDescription(signal));
-            if (peerObj) {
+            if (pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal));
                 peerObj.isRemoteDescriptionSet = true;
                 // Flush buffered candidates
                 while (peerObj.iceCandidateQueue.length > 0) {
@@ -725,12 +746,18 @@ function getOrCreatePeerConnection(peerId) {
     console.log('[WebRTC] Initializing PeerConnection for:', peerId);
     const pc = new RTCPeerConnection(rtcConfig);
 
+    // Polite Peer Pattern: Deterministic tie-breaker to resolve double-offer glare
+    const isPolite = Boolean(myId && peerId && myId < peerId);
+
     const peerObj = {
         pc,
         stream: new MediaStream(),
         tileEl: null,
         iceCandidateQueue: [],
-        isRemoteDescriptionSet: false
+        isRemoteDescriptionSet: false,
+        isPolite,
+        makingOffer: false,
+        ignoreOffer: false
     };
     peers.set(peerId, peerObj);
 
@@ -746,8 +773,21 @@ function getOrCreatePeerConnection(peerId) {
 
     // Remote Track Received -> Render & Paint Tile in Grid
     pc.ontrack = (event) => {
-        console.log('[WebRTC] Received track from:', peerId, event.track.kind);
-        peerObj.stream.addTrack(event.track);
+        console.log('[WebRTC] Received track from:', peerId, event.track.kind, event.track.id);
+
+        // Track Isolation: Replace any previous track of the same kind to prevent accumulation or stream cloning
+        peerObj.stream.getTracks().filter(t => t.kind === event.track.kind).forEach(oldTrack => {
+            if (oldTrack.id !== event.track.id) {
+                try {
+                    peerObj.stream.removeTrack(oldTrack);
+                    oldTrack.stop();
+                } catch (e) {}
+            }
+        });
+
+        if (!peerObj.stream.getTracks().some(t => t.id === event.track.id)) {
+            peerObj.stream.addTrack(event.track);
+        }
 
         if (!peerObj.tileEl) {
             peerObj.tileEl = createStreamTile(peerId, peerObj.stream, `Participante ${peerId.substr(0, 5)}`, false);
@@ -756,7 +796,9 @@ function getOrCreatePeerConnection(peerId) {
 
         const videoEl = peerObj.tileEl.querySelector('video');
         if (videoEl) {
-            videoEl.srcObject = peerObj.stream;
+            if (videoEl.srcObject !== peerObj.stream) {
+                videoEl.srcObject = peerObj.stream;
+            }
             videoEl.play().catch(e => {
                 console.warn('[Playback] Autoplay blocked, playing muted for mobile:', e);
                 videoEl.muted = true;
@@ -768,6 +810,13 @@ function getOrCreatePeerConnection(peerId) {
         event.track.onunmute = () => {
             if (videoEl) {
                 videoEl.play().catch(e => {});
+            }
+        };
+
+        event.track.onended = () => {
+            console.log('[WebRTC] Remote track ended:', peerId, event.track.kind);
+            if (event.track.kind === 'video') {
+                removeStreamTile(peerId);
             }
         };
 
@@ -832,17 +881,18 @@ function optimizeSDP(sdp) {
             newLines[newLines.length - 1] = line + ';stereo=1;sprop-stereo=1;maxaveragebitrate=320000';
         }
 
-        // Smooth Bitrate Tuning: start at 3.5 Mbps, adapt up to 8 Mbps with 1.5 Mbps floor
+        // Balanced 1080p60 Bitrate Tuning: start at 3.5 Mbps, adapt up to 6 Mbps max with 1.8 Mbps floor
+        // Prevents saturation and bufferbloat when 2+ streams run concurrently on residential networks
         if (line.startsWith('a=fmtp:') && (line.toLowerCase().includes('h264') || line.toLowerCase().includes('vp8') || line.toLowerCase().includes('vp9'))) {
             if (!line.includes('x-google-max-bitrate')) {
-                newLines[newLines.length - 1] = line + ';x-google-min-bitrate=1500;x-google-start-bitrate=3500;x-google-max-bitrate=8000';
+                newLines[newLines.length - 1] = line + ';x-google-min-bitrate=1800;x-google-start-bitrate=3500;x-google-max-bitrate=6000';
             }
         }
 
-        // Inject Video Bitrate Booster (8000 Kbps max bitrate for crisp 1080p 60FPS)
+        // 6000 Kbps max bitrate gives crystal clear 1080p 60FPS without choking multi-stream bandwidth
         if (line.startsWith('m=video')) {
-            newLines.push('b=AS:8000');
-            newLines.push('b=TIAS:8000000');
+            newLines.push('b=AS:6000');
+            newLines.push('b=TIAS:6000000');
         }
     }
     return newLines.join('\r\n');
@@ -882,29 +932,36 @@ function removeStreamTile(peerId) {
     }
 }
 
-
 function addLocalTracksToPC(pc) {
     if (!pc || !localStream) return;
     const senders = pc.getSenders();
     localStream.getTracks().forEach(track => {
-        const exists = senders.some(s => s.track && s.track.id === track.id);
-        if (!exists) {
-            const sender = pc.addTrack(track, localStream);
-            if (track.kind === 'video' && sender && typeof sender.getParameters === 'function') {
-                try {
-                    const params = sender.getParameters();
-                    if (!params.degradationPreference) {
-                        params.degradationPreference = 'maintain-framerate';
-                    }
-                    if (params.encodings && params.encodings[0]) {
-                        params.encodings[0].maxBitrate = 8000000;
-                        params.encodings[0].maxFramerate = 60;
-                    }
-                    sender.setParameters(params).catch(() => {});
-                } catch (e) {}
+        const existingSender = senders.find(s => s.track && (s.track.id === track.id || s.track.kind === track.kind));
+        if (existingSender) {
+            if (existingSender.track !== track) {
+                try { existingSender.replaceTrack(track); } catch (e) {}
             }
+            configureSenderParams(existingSender, track.kind);
+        } else {
+            const sender = pc.addTrack(track, localStream);
+            configureSenderParams(sender, track.kind);
         }
     });
+}
+
+function configureSenderParams(sender, kind) {
+    if (kind === 'video' && sender && typeof sender.getParameters === 'function') {
+        try {
+            const params = sender.getParameters();
+            // NEVER sacrifice 1080p resolution - keep text and game pixels razor-sharp
+            params.degradationPreference = 'maintain-resolution';
+            if (params.encodings && params.encodings[0]) {
+                params.encodings[0].maxBitrate = 6000000;
+                params.encodings[0].maxFramerate = 60;
+            }
+            sender.setParameters(params).catch(() => {});
+        } catch (e) {}
+    }
 }
 
 // Start Screen Capture
@@ -1079,13 +1136,7 @@ async function startScreenShare() {
         // --- Step 6: Send stream to all peers ---
         for (const [peerId, peerObj] of peers.entries()) {
             addLocalTracksToPC(peerObj.pc);
-            let offer = await peerObj.pc.createOffer();
-            offer = new RTCSessionDescription({
-                type: offer.type,
-                sdp: optimizeSDP(offer.sdp)
-            });
-            await peerObj.pc.setLocalDescription(offer);
-            socket.emit('signal', { targetId: peerId, signal: peerObj.pc.localDescription });
+            sendOffer(peerId);
         }
 
         socket.emit('stream-state', { roomId, state: 'started' });
@@ -1110,6 +1161,19 @@ function stopScreenShare() {
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         localStream = null;
+    }
+
+    // Clean up transceivers/senders across all active peer connections
+    for (const [peerId, peerObj] of peers.entries()) {
+        if (peerObj && peerObj.pc) {
+            peerObj.pc.getSenders().forEach(sender => {
+                try {
+                    peerObj.pc.removeTrack(sender);
+                } catch (e) {}
+            });
+            // Renegotiate so peers drop the remote tile cleanly
+            sendOffer(peerId);
+        }
     }
 
     const localTile = document.getElementById('localStreamTile');
