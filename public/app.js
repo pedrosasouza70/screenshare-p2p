@@ -307,7 +307,12 @@ function getOrCreatePeerConnection(peerId) {
         const videoEl = peerObj.tileEl.querySelector('video');
         if (videoEl) {
             videoEl.srcObject = peerObj.stream;
-            videoEl.play().catch(e => console.log('[Playback] Video play request:', e));
+            videoEl.play().catch(e => {
+                console.warn('[Playback] Autoplay blocked, playing muted for mobile:', e);
+                videoEl.muted = true;
+                videoEl.play().catch(err => console.error('[Playback] Video play failed completely:', err));
+                showTapToUnmuteBadge(peerObj.tileEl, videoEl);
+            });
         }
 
         event.track.onunmute = () => {
@@ -614,6 +619,8 @@ function createStreamTile(id, stream, labelText, isMuted) {
     const video = document.createElement('video');
     video.autoplay = true;
     video.playsInline = true;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
     video.muted = isMuted; // Mute local preview to prevent acoustic feedback
     video.srcObject = stream;
 
@@ -632,8 +639,8 @@ function createStreamTile(id, stream, labelText, isMuted) {
     if (!isMuted) {
         const muteBtn = document.createElement('button');
         muteBtn.className = 'btn-icon';
-        muteBtn.style.width = '28px';
-        muteBtn.style.height = '28px';
+        muteBtn.style.width = '32px';
+        muteBtn.style.height = '32px';
         muteBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
 
         const slider = document.createElement('input');
@@ -649,7 +656,8 @@ function createStreamTile(id, stream, labelText, isMuted) {
             muteBtn.innerHTML = val === 0 ? '<i class="fa-solid fa-volume-xmark"></i>' : '<i class="fa-solid fa-volume-high"></i>';
         });
 
-        muteBtn.addEventListener('click', () => {
+        muteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             if (video.volume > 0) {
                 video.volume = 0;
                 slider.value = '0';
@@ -667,20 +675,123 @@ function createStreamTile(id, stream, labelText, isMuted) {
 
     const fsBtn = document.createElement('button');
     fsBtn.className = 'btn-icon';
-    fsBtn.style.width = '28px';
-    fsBtn.style.height = '28px';
-    fsBtn.title = 'Expandir Vídeo';
+    fsBtn.style.width = '32px';
+    fsBtn.style.height = '32px';
+    fsBtn.title = 'Tela Cheia';
     fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i>';
-    fsBtn.addEventListener('click', () => {
-        if (video.requestFullscreen) video.requestFullscreen();
+    fsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleTileFullscreen(tile, video);
     });
     controlsOverlay.appendChild(fsBtn);
+
+    // Double tap/click to fullscreen
+    tile.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        toggleTileFullscreen(tile, video);
+    });
 
     tile.appendChild(video);
     tile.appendChild(headerBadge);
     tile.appendChild(controlsOverlay);
 
     return tile;
+}
+
+// Universal Fullscreen Handler for Mobile & Desktop
+function toggleTileFullscreen(tile, video) {
+    if (!tile) return;
+
+    // 1. If currently in pseudo-fullscreen, exit it
+    if (tile.classList.contains('pseudo-fullscreen')) {
+        tile.classList.remove('pseudo-fullscreen');
+        const exitBtn = tile.querySelector('.btn-exit-pseudo-fs');
+        if (exitBtn) exitBtn.remove();
+        return;
+    }
+
+    // 2. If native document fullscreen is active, exit it
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        }
+        return;
+    }
+
+    // 3. iOS Safari native video player fullscreen
+    if (video && typeof video.webkitEnterFullscreen === 'function') {
+        try {
+            video.webkitEnterFullscreen();
+            return;
+        } catch (e) {
+            console.warn('[FS] iOS webkitEnterFullscreen error, using pseudo:', e);
+        }
+    }
+
+    // 4. Standard Element Fullscreen (Android Chrome, PC)
+    const req = tile.requestFullscreen || tile.webkitRequestFullscreen || tile.mozRequestFullScreen || tile.msRequestFullscreen;
+    if (req) {
+        req.call(tile).catch(err => {
+            console.warn('[FS] Native requestFullscreen rejected, falling back to pseudo:', err);
+            enterPseudoFullscreen(tile);
+        });
+    } else {
+        // 5. Fallback: Pseudo-fullscreen
+        enterPseudoFullscreen(tile);
+    }
+}
+
+function enterPseudoFullscreen(tile) {
+    tile.classList.add('pseudo-fullscreen');
+    if (!tile.querySelector('.btn-exit-pseudo-fs')) {
+        const exitBtn = document.createElement('button');
+        exitBtn.className = 'btn-exit-pseudo-fs';
+        exitBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        exitBtn.title = 'Sair da Tela Cheia';
+        exitBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            tile.classList.remove('pseudo-fullscreen');
+            exitBtn.remove();
+        });
+        tile.appendChild(exitBtn);
+    }
+}
+
+// Show Tap-to-Unmute for mobile browsers that block autoplay with sound
+function showTapToUnmuteBadge(tile, video) {
+    if (!tile || tile.querySelector('.tap-unmute-badge')) return;
+    const badge = document.createElement('div');
+    badge.className = 'tap-unmute-badge';
+    badge.innerHTML = '<i class="fa-solid fa-volume-xmark"></i> Toque para ativar o som';
+    badge.style.cssText = `
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(15, 18, 26, 0.9);
+        color: #fff;
+        padding: 10px 18px;
+        border-radius: 24px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+        cursor: pointer;
+        z-index: 15;
+    `;
+    const unmute = (e) => {
+        e.stopPropagation();
+        video.muted = false;
+        video.play().catch(() => {});
+        badge.remove();
+        const muteBtn = tile.querySelector('.tile-controls-overlay .btn-icon');
+        if (muteBtn) muteBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
+    };
+    badge.addEventListener('click', unmute);
+    tile.addEventListener('click', unmute, { once: true });
+    tile.appendChild(badge);
 }
 
 // Update Grid Layout State
@@ -702,15 +813,36 @@ btnCopyLink.addEventListener('click', () => {
         setTimeout(() => {
             btnCopyLink.innerHTML = origText;
         }, 2000);
+    }).catch(() => {
+        // Fallback for mobile if clipboard API requires focus
+        prompt('Copie o link abaixo:', inviteUrl);
     });
 });
 
 // Fullscreen App
 btnFullscreen.addEventListener('click', () => {
-    if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
+    // If there is an active stream, fullscreen that stream first
+    const tiles = streamGrid.querySelectorAll('.stream-tile');
+    if (tiles.length > 0) {
+        const firstTile = tiles[0];
+        const video = firstTile.querySelector('video');
+        toggleTileFullscreen(firstTile, video);
+        return;
+    }
+
+    // Fallback: document fullscreen
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        const reqDocFs = document.documentElement.requestFullscreen || 
+                         document.documentElement.webkitRequestFullscreen ||
+                         document.documentElement.mozRequestFullScreen;
+        if (reqDocFs) {
+            try { reqDocFs.call(document.documentElement).catch(() => {}); } catch(e) {}
+        }
     } else {
-        if (document.exitFullscreen) document.exitFullscreen();
+        const exitDocFs = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitDocFs) {
+            try { exitDocFs.call(document).catch(() => {}); } catch(e) {}
+        }
     }
 });
 

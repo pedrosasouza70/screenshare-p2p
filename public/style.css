@@ -37,15 +37,24 @@ body {
     background-color: var(--bg-dark);
     color: var(--text-main);
     min-height: 100vh;
+    min-height: 100dvh;
     overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .app-container {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
     padding: 12px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
     gap: 12px;
+    overflow-x: hidden;
+    position: relative;
 }
 
 /* Header */
@@ -57,6 +66,7 @@ body {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    flex-shrink: 0;
 }
 
 .brand {
@@ -486,6 +496,7 @@ body {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    flex-shrink: 0;
 }
 
 .toolbar-left, .toolbar-center, .toolbar-right {
@@ -568,3 +579,204 @@ body {
     color: var(--text-muted);
     margin-top: 2px;
 }
+
+/* Pseudo-fullscreen for mobile / fallback */
+.stream-tile.pseudo-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    height: 100vh !important;
+    z-index: 99999 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    background: #000 !important;
+}
+
+.stream-tile.pseudo-fullscreen video {
+    object-fit: contain !important;
+}
+
+.btn-exit-pseudo-fs {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 100000;
+    background: rgba(15, 18, 26, 0.85);
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    transition: var(--transition);
+}
+
+.btn-exit-pseudo-fs:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Mobile Responsive Breakpoints */
+@media (max-width: 768px) {
+    .app-container {
+        padding: 8px;
+        padding-top: max(8px, env(safe-area-inset-top));
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+        gap: 8px;
+    }
+
+    /* Compact Header */
+    .stream-header {
+        padding: 8px 12px;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .brand-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 0.95rem;
+    }
+
+    .brand-title h1 {
+        font-size: 1.05rem;
+    }
+
+    .badge-hd {
+        display: none; /* Save space on mobile */
+    }
+
+    .room-info-bar {
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .info-pill {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
+
+    .btn-sm {
+        padding: 6px 10px;
+        font-size: 0.78rem;
+    }
+
+    /* Grid single column on mobile */
+    .stream-grid {
+        grid-template-columns: 1fr !important;
+        grid-auto-rows: minmax(220px, 1fr);
+        gap: 8px;
+    }
+
+    .stream-tile {
+        min-height: 200px;
+        height: 100%;
+    }
+
+    /* Always show controls overlay clearly on touch screens */
+    .tile-controls-overlay {
+        opacity: 0.95;
+        padding: 6px 10px;
+        gap: 10px;
+        bottom: 8px;
+        right: 8px;
+    }
+
+    .tile-controls-overlay .btn-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
+    }
+
+    .tile-header-badge {
+        top: 8px;
+        left: 8px;
+        padding: 4px 8px;
+        font-size: 0.7rem;
+    }
+
+    /* Bottom Toolbar */
+    .controls-toolbar {
+        padding: 8px 12px;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .toolbar-left, .toolbar-center, .toolbar-right {
+        gap: 8px;
+    }
+
+    .toolbar-center {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+        margin-top: -2px;
+    }
+
+    .toolbar-right {
+        order: 2;
+    }
+
+    .toolbar-left {
+        order: 1;
+    }
+
+    .active-streams-counter {
+        font-size: 0.75rem;
+    }
+
+    .controls-toolbar .btn {
+        padding: 8px 14px;
+        font-size: 0.8rem;
+    }
+
+    .controls-toolbar .btn-icon {
+        width: 38px;
+        height: 38px;
+    }
+
+    /* Empty state placeholder */
+    .placeholder-card {
+        padding: 24px 16px;
+        gap: 12px;
+    }
+
+    .placeholder-card h3 {
+        font-size: 1rem;
+    }
+
+    .placeholder-card p {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .brand-title h1 {
+        font-size: 0.95rem;
+    }
+
+    .room-info-bar .btn-secondary span,
+    #btnCopyLink span {
+        display: none; /* Show only icon on very small screens */
+    }
+
+    #btnCopyLink, #btnChangeRoom {
+        padding: 6px 10px;
+    }
+
+    #btnStartShare span,
+    #btnStopShare span {
+        font-size: 0.78rem;
+    }
+
+    #btnAudioGuide {
+        display: none; /* Hide audio guide on narrow mobile screens to avoid crowding */
+    }
+}
+
