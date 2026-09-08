@@ -112,6 +112,11 @@ const activeStreamsText = document.getElementById('activeStreamsText');
 const btnStartShare = document.getElementById('btnStartShare');
 const btnStartShareBig = document.getElementById('btnStartShareBig');
 const btnStopShare = document.getElementById('btnStopShare');
+const btnQualityToggle = document.getElementById('btnQualityToggle');
+const qualityModeLabel = document.getElementById('qualityModeLabel');
+
+// Quality mode: 'motion' = fluid 60fps (gaming), 'detail' = sharp text/UI (Tibia, documents)
+let contentHintMode = 'motion';
 
 const audioGuideModal = document.getElementById('audioGuideModal');
 const btnAudioGuide = document.getElementById('btnAudioGuide');
@@ -789,6 +794,13 @@ function getOrCreatePeerConnection(peerId) {
     pc.ontrack = (event) => {
         console.log('[WebRTC] Received track from:', peerId, event.track.kind, event.track.id);
 
+        // Minimal playout delay hint for real-time responsiveness in gaming & desktop sharing
+        if (event.receiver && 'playoutDelayHint' in event.receiver) {
+            try {
+                event.receiver.playoutDelayHint = 0;
+            } catch (e) {}
+        }
+
         // Remove old track of the same kind from peerObj.stream (without calling .stop() on remote tracks)
         peerObj.stream.getTracks().filter(t => t.kind === event.track.kind).forEach(oldTrack => {
             if (oldTrack.id !== event.track.id) {
@@ -991,7 +1003,11 @@ function startQualityMonitor() {
     console.log('[QoS] ▶ Quality monitor started');
 
     qualityMonitorInterval = setInterval(async () => {
-        if (!localStream) { stopQualityMonitor(); return; }
+        // Stop if no local stream and no active peers
+        if (!localStream && peers.size === 0) {
+            stopQualityMonitor();
+            return;
+        }
 
         for (const [peerId, peerObj] of peers.entries()) {
             if (!peerObj.pc || peerObj.pc.connectionState === 'closed') continue;
@@ -999,9 +1015,11 @@ function startQualityMonitor() {
                 const stats = await peerObj.pc.getStats();
                 let availableBitrate = null;
                 let qualityLimitation = 'none';
-                let actualFps = 0;
+                let outboundFps = 0;
+                let inboundFps = 0;
+                let inboundPacketsLost = 0;
+                let inboundPacketsReceived = 0;
                 let rtt = 0;
-                let bytesSent = 0;
 
                 stats.forEach(report => {
                     if (report.type === 'candidate-pair' && report.state === 'succeeded') {
@@ -1013,57 +1031,113 @@ function startQualityMonitor() {
                         }
                     }
                     if (report.type === 'outbound-rtp' && report.kind === 'video') {
-                        actualFps = report.framesPerSecond || 0;
+                        outboundFps = report.framesPerSecond || 0;
                         qualityLimitation = report.qualityLimitationReason || 'none';
-                        bytesSent = report.bytesSent || 0;
+                    }
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        inboundFps = report.framesPerSecond || 0;
+                        inboundPacketsLost = report.packetsLost || 0;
+                        inboundPacketsReceived = report.packetsReceived || 0;
                     }
                 });
 
-                // Only adapt if we have bandwidth data from the browser
-                if (availableBitrate === null) continue;
+                // --- 1. OUTBOUND ADAPTATION (When we are streaming to this peer) ---
+                if (localStream && availableBitrate !== null) {
+                    const videoSender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (videoSender) {
+                        const params = videoSender.getParameters();
+                        if (params.encodings && params.encodings[0]) {
+                            const current = params.encodings[0].maxBitrate || 6000000;
+                            let targetBitrate;
 
-                const videoSender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
-                if (!videoSender) continue;
+                            if (availableBitrate < 1200000) {
+                                targetBitrate = 800000; // Emergency floor
+                            } else if (availableBitrate < 2500000) {
+                                targetBitrate = Math.floor(availableBitrate * 0.65);
+                            } else if (availableBitrate < 5000000) {
+                                targetBitrate = Math.floor(availableBitrate * 0.75);
+                            } else {
+                                targetBitrate = 6000000; // Cap
+                            }
 
-                const params = videoSender.getParameters();
-                if (!params.encodings || !params.encodings[0]) continue;
+                            // Auto-throttle framerate to 30fps under critical bottleneck to prevent freezes
+                            if (availableBitrate < 1400000 || qualityLimitation === 'cpu') {
+                                if (params.encodings[0].maxFramerate !== 30) {
+                                    params.encodings[0].maxFramerate = 30;
+                                    console.log(`[QoS] ${peerId.slice(0,6)}: Throttled to 30 FPS due to ${qualityLimitation === 'cpu' ? 'CPU' : 'network'}`);
+                                }
+                            } else if (availableBitrate >= 3500000 && contentHintMode === 'motion') {
+                                if (params.encodings[0].maxFramerate !== 60) {
+                                    params.encodings[0].maxFramerate = 60;
+                                }
+                            }
 
-                const current = params.encodings[0].maxBitrate || 6000000;
-                let targetBitrate;
+                            // Smooth ramp
+                            const smoothed = Math.floor(current + (targetBitrate - current) * 0.3);
+                            const clamped = Math.max(800000, Math.min(6000000, smoothed));
 
-                if (availableBitrate < 1200000) {
-                    // Critical: below 1.2 Mbps — emergency floor
-                    targetBitrate = 800000;
-                } else if (availableBitrate < 2500000) {
-                    // Low: use 65% of available to leave headroom
-                    targetBitrate = Math.floor(availableBitrate * 0.65);
-                } else if (availableBitrate < 5000000) {
-                    // Medium: use 75% of available
-                    targetBitrate = Math.floor(availableBitrate * 0.75);
-                } else {
-                    // Good bandwidth: cap at 6 Mbps ceiling
-                    targetBitrate = 6000000;
+                            if (Math.abs(clamped - current) > 100000) {
+                                params.encodings[0].maxBitrate = clamped;
+                                videoSender.setParameters(params).catch(() => {});
+                                console.log(
+                                    `[QoS] Outbound ${peerId.slice(0,6)}: ` +
+                                    `bitrate ${(current/1e6).toFixed(1)}→${(clamped/1e6).toFixed(1)} Mbps | ` +
+                                    `fps: ${outboundFps} | rtt: ${(rtt*1000).toFixed(0)}ms`
+                                );
+                            }
+                        }
+                    }
                 }
 
-                // Smooth ramp: move 30% toward target per cycle (avoids oscillation)
-                const smoothed = Math.floor(current + (targetBitrate - current) * 0.3);
-                const clamped = Math.max(800000, Math.min(6000000, smoothed));
+                // --- 2. INBOUND QUALITY BADGE (When we are watching this peer) ---
+                if (peerObj.tileEl) {
+                    const badge = peerObj.tileEl.querySelector('.tile-quality-badge');
+                    if (badge) {
+                        // Calculate packet loss delta
+                        let lossRatio = 0;
+                        if (!peerObj._lastStats) {
+                            peerObj._lastStats = { lost: inboundPacketsLost, received: inboundPacketsReceived };
+                        } else {
+                            const dLost = inboundPacketsLost - peerObj._lastStats.lost;
+                            const dRecv = inboundPacketsReceived - peerObj._lastStats.received;
+                            const dTotal = dLost + dRecv;
+                            if (dTotal > 0) {
+                                lossRatio = Math.max(0, dLost / dTotal);
+                            }
+                            peerObj._lastStats = { lost: inboundPacketsLost, received: inboundPacketsReceived };
+                        }
 
-                // Only apply if change is meaningful (> 100kbps difference)
-                if (Math.abs(clamped - current) > 100000) {
-                    params.encodings[0].maxBitrate = clamped;
-                    videoSender.setParameters(params).catch(() => {});
-                    console.log(
-                        `[QoS] ${peerId.slice(0,6)}: ` +
-                        `bitrate ${(current/1e6).toFixed(1)}→${(clamped/1e6).toFixed(1)} Mbps | ` +
-                        `available: ${(availableBitrate/1e6).toFixed(1)} Mbps | ` +
-                        `fps: ${actualFps} | limit: ${qualityLimitation} | ` +
-                        `rtt: ${(rtt*1000).toFixed(0)}ms`
-                    );
+                        const fps = Math.round(inboundFps || 0);
+                        let qosClass = 'good';
+                        let qosText = `${fps > 0 ? fps + ' FPS' : 'Bom'}`;
+
+                        if (lossRatio > 0.08 || (fps > 0 && fps < 18)) {
+                            qosClass = 'poor';
+                            qosText = `Instável • ${fps} FPS`;
+                        } else if (lossRatio > 0.03 || (fps > 0 && fps < 30)) {
+                            qosClass = 'medium';
+                            qosText = `Oscilando • ${fps} FPS`;
+                        } else {
+                            qosClass = 'good';
+                            qosText = fps >= 55 ? '60 FPS Estável' : (fps > 0 ? `${fps} FPS` : 'Estável');
+                        }
+
+                        const dot = badge.querySelector('.qos-dot');
+                        const label = badge.querySelector('.qos-label');
+                        if (dot) dot.className = `qos-dot ${qosClass}`;
+                        if (label) label.textContent = qosText;
+
+                        // Make visible permanently if network is degraded to alert user
+                        if (qosClass === 'poor' || qosClass === 'medium') {
+                            badge.classList.add('visible');
+                        } else {
+                            badge.classList.remove('visible');
+                        }
+                    }
                 }
-            } catch (e) { /* peer may have disconnected mid-stats */ }
+            } catch (e) { /* peer disconnected mid-stats */ }
         }
-    }, 4000); // Poll every 4 seconds
+    }, 3500);
 }
 
 function stopQualityMonitor() {
@@ -1074,16 +1148,72 @@ function stopQualityMonitor() {
     }
 }
 
+// ========== Quality Mode Toggle (Fluido vs Nítido) ==========
+btnQualityToggle.addEventListener('click', toggleQualityMode);
+
+function toggleQualityMode() {
+    contentHintMode = contentHintMode === 'motion' ? 'detail' : 'motion';
+    const isMotion = contentHintMode === 'motion';
+
+    // Update button label
+    qualityModeLabel.textContent = isMotion ? 'Fluido' : 'Nítido';
+    btnQualityToggle.title = isMotion
+        ? 'Modo Fluido: prioriza 60fps (ideal para jogos de ação)'
+        : 'Modo Nítido: prioriza nitidez de texto/UI (ideal para Tibia, documentos)';
+
+    // Apply contentHint to local video track
+    if (localStream) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack && 'contentHint' in videoTrack) {
+            videoTrack.contentHint = contentHintMode;
+            console.log(`[Quality] contentHint → "${contentHintMode}"`);
+        }
+    }
+
+    // Update degradationPreference on all senders
+    for (const [, peerObj] of peers.entries()) {
+        if (!peerObj.pc) continue;
+        const videoSender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+            try {
+                const params = videoSender.getParameters();
+                // 'detail' mode: never sacrifice resolution → maintain-resolution + cap framerate at 30
+                // 'motion' mode: keep resolution but allow full 60fps
+                params.degradationPreference = 'maintain-resolution';
+                if (params.encodings && params.encodings[0]) {
+                    params.encodings[0].maxFramerate = isMotion ? 60 : 30;
+                }
+                videoSender.setParameters(params).catch(() => {});
+            } catch (e) {}
+        }
+    }
+}
+
 // Start Screen Capture
 btnStartShare.addEventListener('click', startScreenShare);
 btnStartShareBig.addEventListener('click', startScreenShare);
 
 async function startScreenShare() {
     try {
+        let idealFps = 60;
+        let idealWidth = 1920;
+        let idealHeight = 1080;
+
+        // Auto-detect mobile or constrained cellular network
+        if (navigator.connection) {
+            const conn = navigator.connection;
+            if (conn.saveData || conn.effectiveType === '2g' || conn.effectiveType === '3g') {
+                console.log(`[Capture] ⚠️ Low-bandwidth detected (${conn.effectiveType}), defaulting to 720p30 profile`);
+                idealWidth = 1280;
+                idealHeight = 720;
+                idealFps = 30;
+            }
+        }
+
         const videoConstraints = {
-            width: { ideal: 1920, max: 1920 },
-            height: { ideal: 1080, max: 1080 },
-            frameRate: { ideal: 60, max: 60 }
+            width: { ideal: idealWidth, max: 1920 },
+            height: { ideal: idealHeight, max: 1080 },
+            frameRate: { ideal: idealFps, max: 60 }
         };
 
         // --- Step 1: Detect VB-Audio CABLE Output ---
@@ -1218,8 +1348,8 @@ async function startScreenShare() {
         // --- Step 4: Build final stream ---
         const videoTrack = screenStream.getVideoTracks()[0];
         if (videoTrack && 'contentHint' in videoTrack) {
-            videoTrack.contentHint = 'motion';
-            console.log('[WebRTC] videoTrack contentHint set to "motion" for fluid 60FPS gaming');
+            videoTrack.contentHint = contentHintMode;
+            console.log(`[WebRTC] videoTrack contentHint set to "${contentHintMode}"`);
         }
 
         if (audioTrack && !screenStream.getAudioTracks().includes(audioTrack)) {
@@ -1236,6 +1366,7 @@ async function startScreenShare() {
 
         btnStartShare.hidden = true;
         btnStopShare.hidden = false;
+        btnQualityToggle.hidden = false;
         updateGridState();
 
         // Detect user clicking native "Stop sharing" bar
@@ -1294,6 +1425,7 @@ function stopScreenShare() {
 
     btnStartShare.hidden = false;
     btnStopShare.hidden = true;
+    btnQualityToggle.hidden = true;
     updateGridState();
 
     socket.emit('stream-state', { roomId, state: 'stopped' });
@@ -1383,6 +1515,14 @@ function createStreamTile(id, stream, labelText, isMuted) {
     tile.appendChild(video);
     tile.appendChild(headerBadge);
     tile.appendChild(controlsOverlay);
+
+    // Quality signal badge (remote tiles only)
+    if (!isMuted) {
+        const qosBadge = document.createElement('div');
+        qosBadge.className = 'tile-quality-badge';
+        qosBadge.innerHTML = '<span class="qos-dot good"></span><span class="qos-label">Bom</span>';
+        tile.appendChild(qosBadge);
+    }
 
     return tile;
 }
@@ -1491,6 +1631,12 @@ function updateGridState() {
     emptyGridPlaceholder.hidden = (count > 0);
     activeStreamsText.textContent = `${count} ${count === 1 ? 'Transmissão Ativa' : 'Transmissões Ativas'}`;
     streamGrid.dataset.count = count;
+
+    if (count > 0 || localStream) {
+        startQualityMonitor();
+    } else {
+        stopQualityMonitor();
+    }
 }
 
 // Copy Invite Link
