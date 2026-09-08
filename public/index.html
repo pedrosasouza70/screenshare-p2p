@@ -55,6 +55,9 @@
         <!-- Room Entry Modal (Shown if room code is empty or to join) -->
         <div class="modal-overlay" id="roomModal">
             <div class="room-card">
+                <button class="room-card-close" id="btnCloseRoomModal" title="Fechar e voltar à sala (ESC)" type="button" style="display: none;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
                 <div class="card-header">
                     <div class="icon-badge">
                         <i class="fa-solid fa-desktop"></i>
@@ -100,6 +103,9 @@
                         </button>
                         <button class="btn btn-secondary btn-block" id="btnCreateNewRoom">
                             <i class="fa-solid fa-sparkles"></i> Criar Nova Sala Exclusiva
+                        </button>
+                        <button class="btn btn-secondary btn-block" id="btnCancelRoomModal" style="display: none;" type="button">
+                            <i class="fa-solid fa-arrow-left"></i> Cancelar e Voltar
                         </button>
                     </div>
                 </div>

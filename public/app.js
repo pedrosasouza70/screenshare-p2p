@@ -63,6 +63,8 @@ const inputRoomPassword = document.getElementById('inputRoomPassword');
 const btnTogglePasswordVisibility = document.getElementById('btnTogglePasswordVisibility');
 const roomErrorBanner = document.getElementById('roomErrorBanner');
 const passwordHint = document.getElementById('passwordHint');
+const btnCloseRoomModal = document.getElementById('btnCloseRoomModal');
+const btnCancelRoomModal = document.getElementById('btnCancelRoomModal');
 
 let currentRoomPassword = '';
 
@@ -341,17 +343,55 @@ function joinRoom() {
     roomModal.style.display = 'none';
     roomModal.classList.add('hidden');
     roomModal.hidden = true;
+    updateRoomModalCloseButton();
 
     if (socket) {
         socket.emit('join-room', { roomId, clientId, password: currentRoomPassword });
     }
 }
 
+// Room Modal Close Helpers (Allows closing the popup if user is already in a room)
+function updateRoomModalCloseButton() {
+    const canClose = Boolean(roomId);
+    if (btnCloseRoomModal) {
+        btnCloseRoomModal.style.display = canClose ? 'flex' : 'none';
+    }
+    if (btnCancelRoomModal) {
+        btnCancelRoomModal.style.display = canClose ? 'flex' : 'none';
+    }
+}
+
+function closeRoomModal() {
+    if (!roomId) return; // Cannot close if not connected to any room yet
+    clearRoomError();
+    if (inputRoomId) inputRoomId.value = roomId;
+    if (inputRoomPassword) inputRoomPassword.value = currentRoomPassword;
+    roomModal.style.display = 'none';
+    roomModal.classList.add('hidden');
+    roomModal.hidden = true;
+}
+
+if (btnCloseRoomModal) {
+    btnCloseRoomModal.addEventListener('click', closeRoomModal);
+}
+if (btnCancelRoomModal) {
+    btnCancelRoomModal.addEventListener('click', closeRoomModal);
+}
+
+// Close room modal on backdrop click if already connected to a room
+roomModal.addEventListener('click', (e) => {
+    if (e.target === roomModal && roomId) {
+        closeRoomModal();
+    }
+});
 
 // Change Room Button Handler
 if (btnChangeRoom) {
     btnChangeRoom.addEventListener('click', () => {
         clearRoomError();
+        if (inputRoomId) inputRoomId.value = roomId;
+        if (inputRoomPassword) inputRoomPassword.value = currentRoomPassword;
+        updateRoomModalCloseButton();
         roomModal.style.removeProperty('display');
         roomModal.style.display = 'flex';
         roomModal.classList.remove('hidden');
@@ -381,6 +421,7 @@ socket.on('join-error', ({ error, message }) => {
     console.warn('[Auth] Join error:', error, message);
     if (error === 'invalid_password') {
         showRoomError(message || 'Senha incorreta para esta sala.');
+        updateRoomModalCloseButton();
         // Reopen room modal so the user can enter/correct password
         roomModal.style.removeProperty('display');
         roomModal.style.display = 'flex';
@@ -1136,9 +1177,14 @@ audioGuideModal.addEventListener('click', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !audioGuideModal.hidden) {
-        audioGuideModal.hidden = true;
-        audioGuideModal.style.display = 'none';
+    if (e.key === 'Escape') {
+        if (!roomModal.hidden && roomModal.style.display !== 'none' && roomId) {
+            closeRoomModal();
+        }
+        if (!audioGuideModal.hidden && audioGuideModal.style.display !== 'none') {
+            audioGuideModal.hidden = true;
+            audioGuideModal.style.display = 'none';
+        }
     }
 });
 
