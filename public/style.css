@@ -335,9 +335,35 @@ body {
     margin-bottom: 20px;
 }
 
+.input-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 .input-group label {
     font-size: 0.8rem;
     color: var(--text-muted);
+}
+
+.room-status-indicator {
+    font-size: 0.74rem;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.room-status-indicator.active {
+    color: var(--success);
+}
+
+.room-status-indicator.new {
+    color: var(--primary);
+}
+
+.room-action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .input-wrapper {

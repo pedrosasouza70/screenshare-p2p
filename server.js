@@ -94,6 +94,18 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Check room existence & member count (for uniqueness check)
+    socket.on('check-room', ({ roomId }, callback) => {
+        const cleanRoomId = (roomId || '').trim().toLowerCase();
+        const room = rooms.get(cleanRoomId);
+        if (typeof callback === 'function') {
+            callback({
+                exists: Boolean(room && room.members.size > 0),
+                memberCount: room ? room.members.size : 0
+            });
+        }
+    });
+
     // Targeted WebRTC Signal Relay (Peer-to-Peer Mesh with Room Isolation)
     socket.on('signal', ({ targetId, signal }) => {
         if (!targetId || !signal) return;

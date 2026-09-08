@@ -65,19 +65,27 @@
 
                 <div class="card-body">
                     <div class="input-group">
-                        <label for="inputRoomId">Código da Sala</label>
+                        <div class="input-label-row">
+                            <label for="inputRoomId">Código da Sala</label>
+                            <span class="room-status-indicator" id="roomStatusIndicator"></span>
+                        </div>
                         <div class="input-wrapper">
                             <i class="fa-solid fa-hashtag input-icon"></i>
-                            <input type="text" id="inputRoomId" placeholder="Ex: sala-de-stream" maxlength="24">
-                            <button class="btn-icon" id="btnRandomRoom" title="Gerar nome aleatório">
+                            <input type="text" id="inputRoomId" placeholder="Ex: grid-m8kp-7x9v" maxlength="32">
+                            <button class="btn-icon" id="btnRandomRoom" title="Gerar novo código único aleatório">
                                 <i class="fa-solid fa-shuffle"></i>
                             </button>
                         </div>
                     </div>
 
-                    <button class="btn btn-primary btn-block btn-lg" id="btnJoinRoom">
-                        <i class="fa-solid fa-right-to-bracket"></i> Entrar na Sala
-                    </button>
+                    <div class="room-action-buttons">
+                        <button class="btn btn-primary btn-block btn-lg" id="btnJoinRoom">
+                            <i class="fa-solid fa-right-to-bracket"></i> Entrar na Sala
+                        </button>
+                        <button class="btn btn-secondary btn-block" id="btnCreateNewRoom">
+                            <i class="fa-solid fa-sparkles"></i> Criar Nova Sala Exclusiva
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

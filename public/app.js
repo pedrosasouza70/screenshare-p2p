@@ -52,7 +52,9 @@ const peers = new Map();
 const roomModal = document.getElementById('roomModal');
 const inputRoomId = document.getElementById('inputRoomId');
 const btnJoinRoom = document.getElementById('btnJoinRoom');
+const btnCreateNewRoom = document.getElementById('btnCreateNewRoom');
 const btnRandomRoom = document.getElementById('btnRandomRoom');
+const roomStatusIndicator = document.getElementById('roomStatusIndicator');
 const btnChangeRoom = document.getElementById('btnChangeRoom');
 const displayRoomId = document.getElementById('displayRoomId');
 const memberCountText = document.getElementById('memberCountText');
@@ -126,19 +128,77 @@ window.addEventListener('DOMContentLoaded', () => {
         inputRoomId.value = savedRoom.trim().toLowerCase();
         joinRoom();
     } else {
-        inputRoomId.value = generateRandomRoomId();
+        const initialRoom = generateRandomRoomId();
+        inputRoomId.value = initialRoom;
+        checkRoomStatus(initialRoom);
     }
 });
 
-btnRandomRoom.addEventListener('click', () => {
-    inputRoomId.value = generateRandomRoomId();
+// Cryptographically Secure Unique Room Generator (e.g. grid-m8kp-7x9v - 850+ billion combinations)
+function generateRandomRoomId() {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let code = '';
+    const array = new Uint8Array(8);
+    if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(array);
+    } else {
+        for (let i = 0; i < 8; i++) array[i] = Math.floor(Math.random() * 256);
+    }
+    for (let i = 0; i < 8; i++) {
+        code += chars[array[i] % chars.length];
+    }
+    return `grid-${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+// Real-time Room Existence and Collision Checker
+let checkRoomTimeout = null;
+function checkRoomStatus(roomIdToCheck) {
+    if (!roomStatusIndicator) return;
+    const cleanId = (roomIdToCheck || '').trim().toLowerCase();
+    if (!cleanId || cleanId.length < 3) {
+        roomStatusIndicator.textContent = '';
+        roomStatusIndicator.className = 'room-status-indicator';
+        return;
+    }
+
+    if (socket && socket.connected) {
+        socket.emit('check-room', { roomId: cleanId }, (res) => {
+            if (!res) return;
+            if (res.exists) {
+                const count = res.memberCount;
+                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-check"></i> Sala ativa (${count} ${count === 1 ? 'pessoa' : 'pessoas'})`;
+                roomStatusIndicator.className = 'room-status-indicator active';
+            } else {
+                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-sparkles"></i> Sala nova e exclusiva`;
+                roomStatusIndicator.className = 'room-status-indicator new';
+            }
+        });
+    }
+}
+
+inputRoomId.addEventListener('input', () => {
+    clearTimeout(checkRoomTimeout);
+    checkRoomTimeout = setTimeout(() => {
+        checkRoomStatus(inputRoomId.value);
+    }, 250);
 });
 
-function generateRandomRoomId() {
-    const nouns = ['stream', 'grid', 'sala', 'duo', 'play', 'live', 'amigos'];
-    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    return `${randomNoun}-${randomNum}`;
+btnRandomRoom.addEventListener('click', () => {
+    const uniqueId = generateRandomRoomId();
+    inputRoomId.value = uniqueId;
+    checkRoomStatus(uniqueId);
+    inputRoomId.focus();
+    inputRoomId.select();
+});
+
+// Create New Unique Room Action
+if (btnCreateNewRoom) {
+    btnCreateNewRoom.addEventListener('click', () => {
+        const uniqueId = generateRandomRoomId();
+        inputRoomId.value = uniqueId;
+        checkRoomStatus(uniqueId);
+        joinRoom();
+    });
 }
 
 // Join Room Handler
