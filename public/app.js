@@ -775,13 +775,10 @@ function getOrCreatePeerConnection(peerId) {
     pc.ontrack = (event) => {
         console.log('[WebRTC] Received track from:', peerId, event.track.kind, event.track.id);
 
-        // Track Isolation: Replace any previous track of the same kind to prevent accumulation or stream cloning
+        // Remove old track of the same kind from peerObj.stream (without calling .stop() on remote tracks)
         peerObj.stream.getTracks().filter(t => t.kind === event.track.kind).forEach(oldTrack => {
             if (oldTrack.id !== event.track.id) {
-                try {
-                    peerObj.stream.removeTrack(oldTrack);
-                    oldTrack.stop();
-                } catch (e) {}
+                try { peerObj.stream.removeTrack(oldTrack); } catch (e) {}
             }
         });
 
@@ -789,27 +786,35 @@ function getOrCreatePeerConnection(peerId) {
             peerObj.stream.addTrack(event.track);
         }
 
-        if (!peerObj.tileEl) {
+        // Only create visual tile in grid if we actually have a video track (prevents audio-only black screens)
+        const hasVideo = peerObj.stream.getVideoTracks().length > 0;
+        if (!peerObj.tileEl && hasVideo) {
             peerObj.tileEl = createStreamTile(peerId, peerObj.stream, `Participante ${peerId.substr(0, 5)}`, false);
             streamGrid.appendChild(peerObj.tileEl);
         }
 
-        const videoEl = peerObj.tileEl.querySelector('video');
-        if (videoEl) {
-            if (videoEl.srcObject !== peerObj.stream) {
+        if (peerObj.tileEl) {
+            const videoEl = peerObj.tileEl.querySelector('video');
+            if (videoEl) {
+                // ALWAYS re-assign srcObject so Chromium/WebKit binds the newly arrived video decoder
                 videoEl.srcObject = peerObj.stream;
+                videoEl.play().catch(e => {
+                    console.warn('[Playback] Autoplay blocked, playing muted for mobile:', e);
+                    videoEl.muted = true;
+                    videoEl.play().catch(err => console.error('[Playback] Video play failed completely:', err));
+                    showTapToUnmuteBadge(peerObj.tileEl, videoEl);
+                });
             }
-            videoEl.play().catch(e => {
-                console.warn('[Playback] Autoplay blocked, playing muted for mobile:', e);
-                videoEl.muted = true;
-                videoEl.play().catch(err => console.error('[Playback] Video play failed completely:', err));
-                showTapToUnmuteBadge(peerObj.tileEl, videoEl);
-            });
         }
 
         event.track.onunmute = () => {
-            if (videoEl) {
-                videoEl.play().catch(e => {});
+            console.log('[WebRTC] Track unmuted from:', peerId, event.track.kind);
+            if (peerObj.tileEl) {
+                const videoEl = peerObj.tileEl.querySelector('video');
+                if (videoEl) {
+                    videoEl.srcObject = peerObj.stream;
+                    videoEl.play().catch(e => {});
+                }
             }
         };
 
