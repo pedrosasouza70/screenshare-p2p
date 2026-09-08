@@ -124,8 +124,8 @@
             </div>
 
             <div class="toolbar-right">
-                <button class="btn btn-secondary btn-sm" id="btnAudioGuide">
-                    <i class="fa-solid fa-volume-high"></i> Dica de Áudio
+                <button class="btn btn-secondary btn-sm" id="btnAudioGuide" title="Guia de isolamento de som com VB-Audio">
+                    <i class="fa-solid fa-sliders"></i> Guia VB-Audio (Sem Discord)
                 </button>
 
                 <button class="btn-icon" id="btnFullscreen" title="Tela Cheia">
@@ -134,37 +134,69 @@
             </div>
         </footer>
 
-        <!-- Audio Guide Modal -->
+        <!-- Audio Guide Modal (VB-Audio Isolation Guide) -->
         <div class="modal-overlay" id="audioGuideModal" style="display: none;" hidden>
-            <div class="modal-card modal-sm">
+            <div class="modal-card modal-guide">
                 <div class="modal-header">
-                    <h3><i class="fa-solid fa-volume-high"></i> Como Compartilhar com Áudio</h3>
+                    <h3><i class="fa-solid fa-sliders"></i> Como Isolar o Áudio com VB-Cable</h3>
                     <button class="btn-close" id="btnCloseAudioGuide"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="modal-body">
+                    <!-- Why it's necessary callout -->
+                    <div class="guide-callout">
+                        <div class="guide-callout-icon">
+                            <i class="fa-solid fa-circle-question"></i>
+                        </div>
+                        <div class="guide-callout-text">
+                            <strong>Por que o VB-Audio é necessário?</strong>
+                            <p>O Windows normalmente mistura todo o som do PC em uma saída só (jogo + vozes do Discord). O <strong>VB-Audio Virtual Cable</strong> cria uma rota separada: seu jogo vai para a transmissão com áudio limpo, enquanto a voz do Discord vai direto para o seu fone sem vazar para quem assiste!</p>
+                        </div>
+                    </div>
+
+                    <h4 class="guide-subtitle"><i class="fa-solid fa-list-check"></i> Configuração em 3 Passos:</h4>
                     <ol class="steps-list">
                         <li>
                             <span class="step-num">1</span>
                             <div>
-                                <strong>Clique em "Compartilhar Tela"</strong>
-                                <p>O Windows/Navegador abrirá a janela de seleção de tela.</p>
+                                <strong>Windows: Saída de som padrão</strong>
+                                <p>Clique no ícone de som 🔊 na barra de tarefas e selecione <code>CABLE Input (VB-Audio)</code> como dispositivo de saída padrão.</p>
                             </div>
                         </li>
                         <li>
                             <span class="step-num">2</span>
                             <div>
-                                <strong>Escolha "Tela Inteira" ou "Aba"</strong>
-                                <p>Para jogos e aplicativos, selecione a tela inteira.</p>
+                                <strong>Discord: Saída direta no seu fone</strong>
+                                <p>No Discord, vá em <em>Configurações ⚙️ &gt; Voz e Vídeo &gt; Dispositivo de Saída</em> e selecione seu <strong>Fone/Alto-falantes real</strong> (não use "Default").</p>
                             </div>
                         </li>
                         <li>
                             <span class="step-num">3</span>
                             <div>
-                                <strong>Marque "Compartilhar áudio do sistema"</strong>
-                                <p>Marque a opção de áudio no canto inferior esquerdo para transmitir com som estéreo em alta definição (48kHz).</p>
+                                <strong>Ouvir o jogo nos seus fones</strong>
+                                <p>Abra <em>Sons &gt; Gravação &gt; CABLE Output &gt; Propriedades &gt; Ouvir</em>, marque ✅ <strong>"Ouvir este dispositivo"</strong> e selecione seu fone real.</p>
                             </div>
                         </li>
                     </ol>
+
+                    <div class="guide-tip-box">
+                        <i class="fa-solid fa-lightbulb"></i>
+                        <span><strong>Dica:</strong> Desmarque a opção <em>"Permitir controle exclusivo"</em> nas propriedades do CABLE Input e Output para evitar travamento de áudio.</span>
+                    </div>
+
+                    <div class="guide-summary-row">
+                        <div class="summary-pill">
+                            <span class="pill-label">Windows Saída</span>
+                            <span class="pill-val"><i class="fa-solid fa-volume-high"></i> CABLE Input</span>
+                        </div>
+                        <div class="summary-pill">
+                            <span class="pill-label">Discord Saída</span>
+                            <span class="pill-val"><i class="fa-brands fa-discord"></i> Fone Real</span>
+                        </div>
+                        <div class="summary-pill">
+                            <span class="pill-label">CABLE Output</span>
+                            <span class="pill-val"><i class="fa-solid fa-ear-listen"></i> Ouvir: Ativado</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

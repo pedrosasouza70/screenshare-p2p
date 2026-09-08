@@ -936,9 +936,16 @@ btnCloseAudioGuide.addEventListener('click', () => {
     audioGuideModal.style.display = 'none';
 });
 
-// Close modal on outside click
+// Close modal on outside click or ESC key
 audioGuideModal.addEventListener('click', (e) => {
     if (e.target === audioGuideModal) {
+        audioGuideModal.hidden = true;
+        audioGuideModal.style.display = 'none';
+    }
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !audioGuideModal.hidden) {
         audioGuideModal.hidden = true;
         audioGuideModal.style.display = 'none';
     }
