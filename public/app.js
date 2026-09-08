@@ -57,9 +57,50 @@ const audioGuideModal = document.getElementById('audioGuideModal');
 const btnAudioGuide = document.getElementById('btnAudioGuide');
 const btnCloseAudioGuide = document.getElementById('btnCloseAudioGuide');
 const btnFullscreen = document.getElementById('btnFullscreen');
+const btnThemeToggle = document.getElementById('btnThemeToggle');
+const THEME_KEY = 'streamgrid_theme';
+
+// Theme Management (Light / Dark)
+function initTheme() {
+    let savedTheme = null;
+    try { savedTheme = localStorage.getItem(THEME_KEY); } catch(e) {}
+    
+    if (!savedTheme) {
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        savedTheme = prefersDark ? 'dark' : 'light';
+    }
+    applyTheme(savedTheme);
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch(e) {}
+    
+    if (btnThemeToggle) {
+        if (theme === 'dark') {
+            btnThemeToggle.innerHTML = '<i class="fa-solid fa-sun"></i>';
+            btnThemeToggle.title = 'Mudar para Tema Claro';
+        } else {
+            btnThemeToggle.innerHTML = '<i class="fa-solid fa-moon"></i>';
+            btnThemeToggle.title = 'Mudar para Tema Escuro';
+        }
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(newTheme);
+}
+
+if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', toggleTheme);
+}
+initTheme();
 
 // Auto populate room code from URL params or localStorage
 window.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
     let savedRoom = null;
