@@ -1265,26 +1265,22 @@ async function startScreenShare() {
             }
         }
 
-        // --- Step 2: Capture screen ---
+        // --- Step 2: Capture screen & audio in a single prompt ---
         let screenStream;
-
-        // ALWAYS capture video-only first (avoids getDisplayMedia audio bug with VB-Cable)
-        // This ensures the picker only shows ONCE regardless of audio device
-        try {
-            screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: videoConstraints,
-                audio: false
-            });
-        } catch (err) {
-            if (err.name === 'NotAllowedError') return;
-            throw err;
-        }
-
-        // --- Step 3: Capture audio separately ---
         let audioTrack = null;
 
         if (cableOutputId) {
-            // VB-Cable mode: capture from CABLE Output (isolated, no Discord)
+            // VB-Cable mode: screen video (1 single prompt) + separate virtual cable audio
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: videoConstraints,
+                    audio: false
+                });
+            } catch (err) {
+                if (err.name === 'NotAllowedError') return;
+                throw err;
+            }
+
             try {
                 const audioStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -1297,25 +1293,15 @@ async function startScreenShare() {
                     }
                 });
                 audioTrack = audioStream.getAudioTracks()[0];
-                // Save device ID for next time
                 localStorage.setItem('streamgrid_cable_device', cableOutputId);
                 console.log('[Audio] ✅ Capturing isolated audio from VB-Cable');
             } catch (audioErr) {
                 console.warn('[Audio] VB-Cable capture failed:', audioErr.message);
-                // Clear saved preference if device no longer works
                 localStorage.removeItem('streamgrid_cable_device');
             }
-        }
-
-        // If no VB-Cable audio, try to get system audio by re-capturing WITH audio
-        // But only if we DON'T have VB-Cable as default (to avoid the picker bug)
-        if (!audioTrack && !cableOutputId) {
+        } else {
+            // Standard mode: single prompt with native system audio option
             try {
-                // Stop the video-only stream and re-capture with audio
-                const videoOnlyTrack = screenStream.getVideoTracks()[0];
-                const displayId = videoOnlyTrack.getSettings().displaySurface;
-                screenStream.getTracks().forEach(t => t.stop());
-
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
                     video: videoConstraints,
                     audio: {
@@ -1324,24 +1310,16 @@ async function startScreenShare() {
                         autoGainControl: false
                     }
                 });
-                // Check if we actually got audio
-                if (screenStream.getAudioTracks().length > 0) {
-                    audioTrack = screenStream.getAudioTracks()[0];
-                    console.log('[Audio] ✅ System audio captured via getDisplayMedia');
-                }
-            } catch (reErr) {
-                if (reErr.name === 'NotAllowedError') return;
-                console.warn('[Audio] System audio fallback failed:', reErr.message);
-                // Re-capture video-only as last resort
-                try {
-                    screenStream = await navigator.mediaDevices.getDisplayMedia({
-                        video: videoConstraints,
-                        audio: false
-                    });
-                } catch (lastErr) {
-                    if (lastErr.name === 'NotAllowedError') return;
-                    throw lastErr;
-                }
+            } catch (err) {
+                if (err.name === 'NotAllowedError') return;
+                throw err;
+            }
+
+            if (screenStream.getAudioTracks().length > 0) {
+                audioTrack = screenStream.getAudioTracks()[0];
+                console.log('[Audio] ✅ System audio captured directly via getDisplayMedia');
+            } else {
+                console.log('[Audio] ℹ️ Screen shared without system audio');
             }
         }
 
