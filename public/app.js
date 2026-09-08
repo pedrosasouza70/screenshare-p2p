@@ -48,23 +48,46 @@ let localStream = null;
 // Map of remote peers: peerId -> { pc, stream, tileEl, iceCandidateQueue, isRemoteDescriptionSet }
 const peers = new Map();
 
-// DOM Elements
+// DOM Elements - Room Modal & Views
 const roomModal = document.getElementById('roomModal');
-const inputRoomId = document.getElementById('inputRoomId');
-const btnJoinRoom = document.getElementById('btnJoinRoom');
-const btnCreateNewRoom = document.getElementById('btnCreateNewRoom');
+const roomErrorBanner = document.getElementById('roomErrorBanner');
+const btnCloseRoomModal = document.getElementById('btnCloseRoomModal');
+const btnCancelRoomModal = document.getElementById('btnCancelRoomModal');
+const roomChoiceCancelContainer = document.getElementById('roomChoiceCancelContainer');
+
+// Subviews
+const roomViewChoice = document.getElementById('roomViewChoice');
+const roomViewCreate = document.getElementById('roomViewCreate');
+const roomViewJoin = document.getElementById('roomViewJoin');
+
+// Choice View Elements
+const btnChooseCreate = document.getElementById('btnChooseCreate');
+const btnChooseJoin = document.getElementById('btnChooseJoin');
+
+// Create View Elements
+const inputCreateRoomId = document.getElementById('inputCreateRoomId');
+const inputCreateRoomPassword = document.getElementById('inputCreateRoomPassword');
 const btnRandomRoom = document.getElementById('btnRandomRoom');
-const roomStatusIndicator = document.getElementById('roomStatusIndicator');
+const btnGenerateRandomQuick = document.getElementById('btnGenerateRandomQuick');
+const btnToggleCreatePass = document.getElementById('btnToggleCreatePass');
+const createRoomStatusIndicator = document.getElementById('createRoomStatusIndicator');
+const btnConfirmCreate = document.getElementById('btnConfirmCreate');
+const btnBackFromCreate = document.getElementById('btnBackFromCreate');
+
+// Join View Elements
+const inputJoinRoomId = document.getElementById('inputJoinRoomId');
+const inputJoinRoomPassword = document.getElementById('inputJoinRoomPassword');
+const btnToggleJoinPass = document.getElementById('btnToggleJoinPass');
+const joinRoomStatusIndicator = document.getElementById('joinRoomStatusIndicator');
+const joinPasswordHint = document.getElementById('joinPasswordHint');
+const btnConfirmJoin = document.getElementById('btnConfirmJoin');
+const btnBackFromJoin = document.getElementById('btnBackFromJoin');
+
+// Header Info & Actions
 const btnChangeRoom = document.getElementById('btnChangeRoom');
 const displayRoomId = document.getElementById('displayRoomId');
 const memberCountText = document.getElementById('memberCountText');
 const btnCopyLink = document.getElementById('btnCopyLink');
-const inputRoomPassword = document.getElementById('inputRoomPassword');
-const btnTogglePasswordVisibility = document.getElementById('btnTogglePasswordVisibility');
-const roomErrorBanner = document.getElementById('roomErrorBanner');
-const passwordHint = document.getElementById('passwordHint');
-const btnCloseRoomModal = document.getElementById('btnCloseRoomModal');
-const btnCancelRoomModal = document.getElementById('btnCancelRoomModal');
 
 let currentRoomPassword = '';
 
@@ -136,51 +159,20 @@ function clearRoomError() {
     roomErrorBanner.hidden = true;
 }
 
-// Password visibility toggle handler
-if (btnTogglePasswordVisibility && inputRoomPassword) {
-    btnTogglePasswordVisibility.addEventListener('click', (e) => {
+// Password Visibility Toggle Helpers
+function setupPasswordToggle(btn, input) {
+    if (!btn || !input) return;
+    btn.addEventListener('click', (e) => {
         e.preventDefault();
-        const isPassword = inputRoomPassword.type === 'password';
-        inputRoomPassword.type = isPassword ? 'text' : 'password';
-        btnTogglePasswordVisibility.innerHTML = isPassword 
+        const isPassword = input.type === 'password';
+        input.type = isPassword ? 'text' : 'password';
+        btn.innerHTML = isPassword 
             ? '<i class="fa-solid fa-eye-slash"></i>' 
             : '<i class="fa-solid fa-eye"></i>';
     });
 }
-
-if (inputRoomPassword) {
-    inputRoomPassword.addEventListener('input', clearRoomError);
-    inputRoomPassword.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') joinRoom();
-    });
-}
-
-// Auto populate room code from URL params or localStorage
-window.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomParam = urlParams.get('room');
-    const passParam = urlParams.get('pass');
-    
-    if (passParam && inputRoomPassword) {
-        inputRoomPassword.value = passParam;
-    }
-
-    let savedRoom = null;
-    try { savedRoom = localStorage.getItem(STORAGE_KEY); } catch(e) {}
-
-    if (roomParam) {
-        inputRoomId.value = roomParam.trim().toLowerCase();
-        joinRoom();
-    } else if (savedRoom) {
-        inputRoomId.value = savedRoom.trim().toLowerCase();
-        joinRoom();
-    } else {
-        const initialRoom = generateRandomRoomId();
-        inputRoomId.value = initialRoom;
-        checkRoomStatus(initialRoom);
-    }
-});
+setupPasswordToggle(btnToggleCreatePass, inputCreateRoomPassword);
+setupPasswordToggle(btnToggleJoinPass, inputJoinRoomPassword);
 
 // Cryptographically Secure Unique Room Generator (e.g. grid-m8kp-7x9v - 850+ billion combinations)
 function generateRandomRoomId() {
@@ -198,17 +190,83 @@ function generateRandomRoomId() {
     return `grid-${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
-// Real-time Room Existence and Collision Checker
-let checkRoomTimeout = null;
-function checkRoomStatus(roomIdToCheck) {
-    if (!roomStatusIndicator) return;
+// Subview Switcher
+function switchRoomView(viewName) {
+    clearRoomError();
+    if (roomViewChoice) {
+        roomViewChoice.style.display = (viewName === 'choice') ? 'block' : 'none';
+        roomViewChoice.hidden = (viewName !== 'choice');
+    }
+    if (roomViewCreate) {
+        roomViewCreate.style.display = (viewName === 'create') ? 'block' : 'none';
+        roomViewCreate.hidden = (viewName !== 'create');
+    }
+    if (roomViewJoin) {
+        roomViewJoin.style.display = (viewName === 'join') ? 'block' : 'none';
+        roomViewJoin.hidden = (viewName !== 'join');
+    }
+
+    if (viewName === 'choice') {
+        updateRoomModalCloseButton();
+    } else if (viewName === 'create') {
+        if (inputCreateRoomId && !inputCreateRoomId.value.trim()) {
+            rollRandomCreateRoom();
+        } else if (inputCreateRoomId) {
+            checkCreateRoomStatus(inputCreateRoomId.value);
+        }
+        setTimeout(() => {
+            if (inputCreateRoomId) {
+                inputCreateRoomId.focus();
+                inputCreateRoomId.select();
+            }
+        }, 50);
+    } else if (viewName === 'join') {
+        if (inputJoinRoomId) checkJoinRoomStatus(inputJoinRoomId.value);
+        setTimeout(() => {
+            if (inputJoinRoomId) {
+                inputJoinRoomId.focus();
+                if (inputJoinRoomId.value) inputJoinRoomId.select();
+            }
+        }, 50);
+    }
+}
+
+// Real-time Room Existence Checker for Create View
+let checkCreateTimeout = null;
+function checkCreateRoomStatus(roomIdToCheck) {
+    if (!createRoomStatusIndicator) return;
     const cleanId = (roomIdToCheck || '').trim().toLowerCase();
     if (!cleanId || cleanId.length < 3) {
-        roomStatusIndicator.textContent = '';
-        roomStatusIndicator.className = 'room-status-indicator';
-        if (passwordHint) {
-            passwordHint.textContent = '';
-            passwordHint.className = 'password-hint';
+        createRoomStatusIndicator.textContent = '';
+        createRoomStatusIndicator.className = 'room-status-indicator';
+        return;
+    }
+
+    if (socket && socket.connected) {
+        socket.emit('check-room', { roomId: cleanId }, (res) => {
+            if (!res) return;
+            if (res.exists) {
+                createRoomStatusIndicator.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Sala já existe (${res.memberCount} online)`;
+                createRoomStatusIndicator.className = 'room-status-indicator active';
+            } else {
+                createRoomStatusIndicator.innerHTML = `<i class="fa-solid fa-sparkles"></i> Código disponível!`;
+                createRoomStatusIndicator.className = 'room-status-indicator new';
+            }
+        });
+    }
+}
+
+// Real-time Room Existence Checker for Join View
+let checkJoinTimeout = null;
+function checkJoinRoomStatus(roomIdToCheck) {
+    if (!joinRoomStatusIndicator) return;
+    const cleanId = (roomIdToCheck || '').trim().toLowerCase();
+    if (!cleanId || cleanId.length < 3) {
+        joinRoomStatusIndicator.textContent = '';
+        joinRoomStatusIndicator.className = 'room-status-indicator';
+        if (joinPasswordHint) {
+            joinPasswordHint.textContent = '';
+            joinPasswordHint.className = 'password-hint';
         }
         return;
     }
@@ -219,63 +277,150 @@ function checkRoomStatus(roomIdToCheck) {
             if (res.exists) {
                 const count = res.memberCount;
                 const lockBadge = res.hasPassword ? ' &bull; <i class="fa-solid fa-lock" title="Protegida por senha"></i> Com senha' : '';
-                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-check"></i> Sala ativa (${count} ${count === 1 ? 'pessoa' : 'pessoas'})${lockBadge}`;
-                roomStatusIndicator.className = 'room-status-indicator active';
-                if (passwordHint) {
+                joinRoomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-check"></i> Sala ativa (${count} ${count === 1 ? 'pessoa' : 'pessoas'})${lockBadge}`;
+                joinRoomStatusIndicator.className = 'room-status-indicator active';
+                if (joinPasswordHint) {
                     if (res.hasPassword) {
-                        passwordHint.innerHTML = '<i class="fa-solid fa-lock"></i> Requer senha';
-                        passwordHint.className = 'password-hint required';
+                        joinPasswordHint.innerHTML = '<i class="fa-solid fa-lock"></i> Requer senha';
+                        joinPasswordHint.className = 'password-hint required';
                     } else {
-                        passwordHint.innerHTML = 'Sem senha (Pública)';
-                        passwordHint.className = 'password-hint optional';
+                        joinPasswordHint.innerHTML = 'Sem senha (Pública)';
+                        joinPasswordHint.className = 'password-hint optional';
                     }
                 }
             } else {
-                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-sparkles"></i> Sala nova e exclusiva`;
-                roomStatusIndicator.className = 'room-status-indicator new';
-                if (passwordHint) {
-                    passwordHint.innerHTML = 'Opcional (Deixe em branco p/ pública)';
-                    passwordHint.className = 'password-hint optional';
+                joinRoomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-info"></i> Sala vazia (será criada ao entrar)`;
+                joinRoomStatusIndicator.className = 'room-status-indicator new';
+                if (joinPasswordHint) {
+                    joinPasswordHint.innerHTML = 'Opcional (Deixe em branco p/ pública)';
+                    joinPasswordHint.className = 'password-hint optional';
                 }
             }
         });
     }
 }
 
-inputRoomId.addEventListener('input', () => {
-    clearRoomError();
-    clearTimeout(checkRoomTimeout);
-    checkRoomTimeout = setTimeout(() => {
-        checkRoomStatus(inputRoomId.value);
-    }, 250);
-});
-
-btnRandomRoom.addEventListener('click', () => {
+function rollRandomCreateRoom() {
     clearRoomError();
     const uniqueId = generateRandomRoomId();
-    inputRoomId.value = uniqueId;
-    if (inputRoomPassword) inputRoomPassword.value = '';
-    checkRoomStatus(uniqueId);
-    inputRoomId.focus();
-    inputRoomId.select();
-});
-
-// Create New Unique Room Action
-if (btnCreateNewRoom) {
-    btnCreateNewRoom.addEventListener('click', () => {
-        clearRoomError();
-        const uniqueId = generateRandomRoomId();
-        inputRoomId.value = uniqueId;
-        if (inputRoomPassword) inputRoomPassword.value = '';
-        checkRoomStatus(uniqueId);
-        joinRoom();
-    });
+    if (inputCreateRoomId) {
+        inputCreateRoomId.value = uniqueId;
+        checkCreateRoomStatus(uniqueId);
+    }
 }
 
-// Join Room Handler
-btnJoinRoom.addEventListener('click', joinRoom);
-inputRoomId.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') joinRoom();
+// Choice View Listeners
+if (btnChooseCreate) {
+    btnChooseCreate.addEventListener('click', () => switchRoomView('create'));
+}
+if (btnChooseJoin) {
+    btnChooseJoin.addEventListener('click', () => switchRoomView('join'));
+}
+
+// Create View Listeners
+if (btnRandomRoom) {
+    btnRandomRoom.addEventListener('click', rollRandomCreateRoom);
+}
+if (btnGenerateRandomQuick) {
+    btnGenerateRandomQuick.addEventListener('click', rollRandomCreateRoom);
+}
+if (inputCreateRoomId) {
+    inputCreateRoomId.addEventListener('input', () => {
+        clearRoomError();
+        clearTimeout(checkCreateTimeout);
+        checkCreateTimeout = setTimeout(() => {
+            checkCreateRoomStatus(inputCreateRoomId.value);
+        }, 250);
+    });
+    inputCreateRoomId.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleConfirmCreate();
+    });
+}
+if (inputCreateRoomPassword) {
+    inputCreateRoomPassword.addEventListener('input', clearRoomError);
+    inputCreateRoomPassword.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleConfirmCreate();
+    });
+}
+if (btnConfirmCreate) {
+    btnConfirmCreate.addEventListener('click', handleConfirmCreate);
+}
+if (btnBackFromCreate) {
+    btnBackFromCreate.addEventListener('click', () => switchRoomView('choice'));
+}
+
+// Join View Listeners
+if (inputJoinRoomId) {
+    inputJoinRoomId.addEventListener('input', () => {
+        clearRoomError();
+        clearTimeout(checkJoinTimeout);
+        checkJoinTimeout = setTimeout(() => {
+            checkJoinRoomStatus(inputJoinRoomId.value);
+        }, 250);
+    });
+    inputJoinRoomId.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleConfirmJoin();
+    });
+}
+if (inputJoinRoomPassword) {
+    inputJoinRoomPassword.addEventListener('input', clearRoomError);
+    inputJoinRoomPassword.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleConfirmJoin();
+    });
+}
+if (btnConfirmJoin) {
+    btnConfirmJoin.addEventListener('click', handleConfirmJoin);
+}
+if (btnBackFromJoin) {
+    btnBackFromJoin.addEventListener('click', () => switchRoomView('choice'));
+}
+
+function handleConfirmCreate() {
+    clearRoomError();
+    const newRoomId = (inputCreateRoomId ? inputCreateRoomId.value.trim().toLowerCase() : '') || generateRandomRoomId();
+    if (inputCreateRoomId) inputCreateRoomId.value = newRoomId;
+    const pass = (inputCreateRoomPassword ? inputCreateRoomPassword.value.trim() : '');
+    joinRoom(newRoomId, pass);
+}
+
+function handleConfirmJoin() {
+    clearRoomError();
+    const newRoomId = (inputJoinRoomId ? inputJoinRoomId.value.trim().toLowerCase() : '');
+    if (!newRoomId) {
+        showRoomError('Por favor, informe o código da sala para entrar.');
+        if (inputJoinRoomId) inputJoinRoomId.focus();
+        return;
+    }
+    const pass = (inputJoinRoomPassword ? inputJoinRoomPassword.value.trim() : '');
+    joinRoom(newRoomId, pass);
+}
+
+// Auto populate room code from URL params or localStorage
+window.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    const passParam = urlParams.get('pass');
+    
+    if (passParam) {
+        if (inputCreateRoomPassword) inputCreateRoomPassword.value = passParam;
+        if (inputJoinRoomPassword) inputJoinRoomPassword.value = passParam;
+    }
+
+    let savedRoom = null;
+    try { savedRoom = localStorage.getItem(STORAGE_KEY); } catch(e) {}
+
+    if (roomParam) {
+        const clean = roomParam.trim().toLowerCase();
+        if (inputJoinRoomId) inputJoinRoomId.value = clean;
+        joinRoom(clean, passParam || '');
+    } else if (savedRoom) {
+        const clean = savedRoom.trim().toLowerCase();
+        if (inputJoinRoomId) inputJoinRoomId.value = clean;
+        joinRoom(clean);
+    } else {
+        openRoomModal('choice');
+    }
 });
 
 function cleanupRoomState() {
@@ -313,13 +458,10 @@ function cleanupRoomState() {
     updateGridState();
 }
 
-function joinRoom() {
+function joinRoom(targetRoomId, targetPass = '') {
     clearRoomError();
-    const newRoomId = inputRoomId.value.trim().toLowerCase() || generateRandomRoomId();
-    inputRoomId.value = newRoomId;
-
-    const pass = (inputRoomPassword ? inputRoomPassword.value.trim() : '');
-    currentRoomPassword = pass;
+    const newRoomId = (targetRoomId || '').trim().toLowerCase() || generateRandomRoomId();
+    currentRoomPassword = (targetPass || '').trim();
 
     // If switching rooms, close all previous connections cleanly
     if (roomId && roomId !== newRoomId) {
@@ -350,22 +492,33 @@ function joinRoom() {
     }
 }
 
-// Room Modal Close Helpers (Allows closing the popup if user is already in a room)
+// Room Modal Open / Close Helpers
+function openRoomModal(initialView = 'choice') {
+    clearRoomError();
+    updateRoomModalCloseButton();
+    switchRoomView(initialView);
+    roomModal.style.removeProperty('display');
+    roomModal.style.display = 'flex';
+    roomModal.classList.remove('hidden');
+    roomModal.hidden = false;
+}
+
 function updateRoomModalCloseButton() {
     const canClose = Boolean(roomId);
     if (btnCloseRoomModal) {
         btnCloseRoomModal.style.display = canClose ? 'flex' : 'none';
     }
     if (btnCancelRoomModal) {
-        btnCancelRoomModal.style.display = canClose ? 'flex' : 'none';
+        btnCancelRoomModal.style.display = canClose ? 'inline-flex' : 'none';
+    }
+    if (roomChoiceCancelContainer) {
+        roomChoiceCancelContainer.style.display = canClose ? 'block' : 'none';
     }
 }
 
 function closeRoomModal() {
     if (!roomId) return; // Cannot close if not connected to any room yet
     clearRoomError();
-    if (inputRoomId) inputRoomId.value = roomId;
-    if (inputRoomPassword) inputRoomPassword.value = currentRoomPassword;
     roomModal.style.display = 'none';
     roomModal.classList.add('hidden');
     roomModal.hidden = true;
@@ -388,17 +541,7 @@ roomModal.addEventListener('click', (e) => {
 // Change Room Button Handler
 if (btnChangeRoom) {
     btnChangeRoom.addEventListener('click', () => {
-        clearRoomError();
-        if (inputRoomId) inputRoomId.value = roomId;
-        if (inputRoomPassword) inputRoomPassword.value = currentRoomPassword;
-        updateRoomModalCloseButton();
-        roomModal.style.removeProperty('display');
-        roomModal.style.display = 'flex';
-        roomModal.classList.remove('hidden');
-        roomModal.hidden = false;
-        checkRoomStatus(inputRoomId.value);
-        inputRoomId.focus();
-        inputRoomId.select();
+        openRoomModal('choice');
     });
 }
 
@@ -420,17 +563,15 @@ socket.on('disconnect', (reason) => {
 socket.on('join-error', ({ error, message }) => {
     console.warn('[Auth] Join error:', error, message);
     if (error === 'invalid_password') {
+        openRoomModal('join');
+        if (inputJoinRoomId) inputJoinRoomId.value = roomId;
         showRoomError(message || 'Senha incorreta para esta sala.');
-        updateRoomModalCloseButton();
-        // Reopen room modal so the user can enter/correct password
-        roomModal.style.removeProperty('display');
-        roomModal.style.display = 'flex';
-        roomModal.classList.remove('hidden');
-        roomModal.hidden = false;
-        if (inputRoomPassword) {
-            inputRoomPassword.focus();
-            inputRoomPassword.select();
+        if (inputJoinRoomPassword) {
+            inputJoinRoomPassword.focus();
+            inputJoinRoomPassword.select();
         }
+    } else {
+        showRoomError(message || 'Erro ao entrar na sala.');
     }
 });
 
@@ -1240,8 +1381,12 @@ audioGuideModal.addEventListener('click', (e) => {
 
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        if (!roomModal.hidden && roomModal.style.display !== 'none' && roomId) {
-            closeRoomModal();
+        if (!roomModal.hidden && roomModal.style.display !== 'none') {
+            if (roomViewChoice && roomViewChoice.style.display === 'none') {
+                switchRoomView('choice');
+            } else if (roomId) {
+                closeRoomModal();
+            }
         }
         if (!audioGuideModal.hidden && audioGuideModal.style.display !== 'none') {
             audioGuideModal.hidden = true;

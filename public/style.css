@@ -429,6 +429,141 @@ body {
     gap: 10px;
 }
 
+/* Two-Step Room Modal Subviews */
+.room-subview {
+    animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.room-subview[hidden] {
+    display: none !important;
+}
+
+.room-choice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.room-choice-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    width: 100%;
+    position: relative;
+    user-select: none;
+}
+
+.room-choice-card:hover {
+    border-color: var(--primary);
+    background: var(--btn-secondary-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.room-choice-card:active {
+    transform: scale(0.99);
+}
+
+.choice-icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+.room-choice-card:hover .choice-icon-wrap {
+    transform: scale(1.08);
+}
+
+.choice-icon-wrap.choice-create {
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--primary);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.choice-icon-wrap.choice-join {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.choice-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+
+.choice-content strong {
+    font-size: 0.96rem;
+    color: var(--text-main);
+    font-weight: 600;
+}
+
+.choice-content span {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.choice-arrow {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    transition: transform 0.2s ease, color 0.2s ease;
+    padding-left: 4px;
+}
+
+.room-choice-card:hover .choice-arrow {
+    transform: translateX(3px);
+    color: var(--primary);
+}
+
+.room-choice-footer {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.input-sub-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 5px;
+}
+
+.btn-text-action {
+    background: transparent;
+    border: none;
+    color: var(--primary);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+    transition: opacity 0.2s, color 0.2s;
+}
+
+.btn-text-action:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
 .input-wrapper {
     position: relative;
     display: flex;

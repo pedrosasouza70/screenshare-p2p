@@ -52,63 +52,163 @@
             </div>
         </header>
 
-        <!-- Room Entry Modal (Shown if room code is empty or to join) -->
+        <!-- Room Entry Modal (Two-Step Flow: Choice -> Create or Join) -->
         <div class="modal-overlay" id="roomModal">
             <div class="room-card">
                 <button class="room-card-close" id="btnCloseRoomModal" title="Fechar e voltar à sala (ESC)" type="button" style="display: none;">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
-                <div class="card-header">
-                    <div class="icon-badge">
-                        <i class="fa-solid fa-desktop"></i>
-                    </div>
-                    <h2>Entrar na Sala de Transmissão</h2>
-                    <p>Compartilhe sua tela em 1080p com áudio e assista às transmissões dos seus amigos simultaneamente.</p>
-                </div>
 
-                <div class="card-body">
-                    <div class="error-banner" id="roomErrorBanner" style="display: none;" hidden></div>
+                <!-- Global Error Banner across views -->
+                <div class="error-banner" id="roomErrorBanner" style="display: none;" hidden></div>
 
-                    <div class="input-group">
-                        <div class="input-label-row">
-                            <label for="inputRoomId">Código da Sala</label>
-                            <span class="room-status-indicator" id="roomStatusIndicator"></span>
+                <!-- SUBVIEW 1: Choice Screen (Criar vs Entrar) -->
+                <div class="room-subview" id="roomViewChoice">
+                    <div class="card-header">
+                        <div class="icon-badge">
+                            <i class="fa-solid fa-layer-group"></i>
                         </div>
-                        <div class="input-wrapper">
-                            <i class="fa-solid fa-hashtag input-icon"></i>
-                            <input type="text" id="inputRoomId" placeholder="Ex: grid-m8kp-7x9v" maxlength="32">
-                            <button class="btn-icon" id="btnRandomRoom" title="Gerar novo código único aleatório">
-                                <i class="fa-solid fa-shuffle"></i>
-                            </button>
-                        </div>
+                        <h2>Salas de Transmissão</h2>
+                        <p>Como você deseja começar? Crie sua própria sala exclusiva ou entre na sala de um amigo.</p>
                     </div>
 
-                    <div class="input-group" id="passwordGroup">
-                        <div class="input-label-row">
-                            <label for="inputRoomPassword">Senha da Sala (Opcional)</label>
-                            <span class="password-hint" id="passwordHint"></span>
-                        </div>
-                        <div class="input-wrapper">
-                            <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="inputRoomPassword" placeholder="Deixe em branco se for pública" maxlength="32">
-                            <button class="btn-icon" id="btnTogglePasswordVisibility" title="Mostrar/Ocultar Senha" type="button">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="room-action-buttons">
-                        <button class="btn btn-primary btn-block btn-lg" id="btnJoinRoom">
-                            <i class="fa-solid fa-right-to-bracket"></i> Entrar na Sala
+                    <div class="room-choice-list">
+                        <button type="button" class="room-choice-card" id="btnChooseCreate">
+                            <div class="choice-icon-wrap choice-create">
+                                <i class="fa-solid fa-sparkles"></i>
+                            </div>
+                            <div class="choice-content">
+                                <strong>Criar Nova Sala</strong>
+                                <span>Defina um nome ou gere um código aleatório com senha opcional</span>
+                            </div>
+                            <div class="choice-arrow">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </div>
                         </button>
-                        <button class="btn btn-secondary btn-block" id="btnCreateNewRoom">
-                            <i class="fa-solid fa-sparkles"></i> Criar Nova Sala Exclusiva
+
+                        <button type="button" class="room-choice-card" id="btnChooseJoin">
+                            <div class="choice-icon-wrap choice-join">
+                                <i class="fa-solid fa-right-to-bracket"></i>
+                            </div>
+                            <div class="choice-content">
+                                <strong>Entrar em uma Sala</strong>
+                                <span>Digite o código de uma sala existente criada por um amigo</span>
+                            </div>
+                            <div class="choice-arrow">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </div>
                         </button>
-                        <button class="btn btn-secondary btn-block" id="btnCancelRoomModal" style="display: none;" type="button">
-                            <i class="fa-solid fa-arrow-left"></i> Cancelar e Voltar
+                    </div>
+
+                    <div class="room-choice-footer" id="roomChoiceCancelContainer" style="display: none;">
+                        <button class="btn btn-secondary btn-block" id="btnCancelRoomModal" type="button">
+                            <i class="fa-solid fa-arrow-left"></i> Cancelar e Voltar à Sala Atual
                         </button>
                     </div>
                 </div>
+
+                <!-- SUBVIEW 2: Create New Room -->
+                <div class="room-subview" id="roomViewCreate" style="display: none;" hidden>
+                    <div class="card-header">
+                        <div class="icon-badge">
+                            <i class="fa-solid fa-sparkles"></i>
+                        </div>
+                        <h2>Criar Nova Sala</h2>
+                        <p>Escolha o nome da sua sala ou gere um código aleatório com 1 clique.</p>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="input-group">
+                            <div class="input-label-row">
+                                <label for="inputCreateRoomId">Código / Nome da Sala</label>
+                                <span class="room-status-indicator" id="createRoomStatusIndicator"></span>
+                            </div>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-hashtag input-icon"></i>
+                                <input type="text" id="inputCreateRoomId" placeholder="Ex: grid-m8kp-7x9v" maxlength="32">
+                                <button class="btn-icon" id="btnRandomRoom" title="Gerar código aleatório" type="button">
+                                    <i class="fa-solid fa-shuffle"></i>
+                                </button>
+                            </div>
+                            <div class="input-sub-actions">
+                                <button type="button" class="btn-text-action" id="btnGenerateRandomQuick">
+                                    <i class="fa-solid fa-dice"></i> Gerar sala aleatória
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <div class="input-label-row">
+                                <label for="inputCreateRoomPassword">Senha da Sala (Opcional)</label>
+                                <span class="password-hint optional">Deixe vazio p/ sala pública</span>
+                            </div>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-lock input-icon"></i>
+                                <input type="password" id="inputCreateRoomPassword" placeholder="Deixe em branco se for pública" maxlength="32">
+                                <button class="btn-icon" id="btnToggleCreatePass" title="Mostrar/Ocultar Senha" type="button">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="room-action-buttons">
+                            <button class="btn btn-primary btn-block btn-lg" id="btnConfirmCreate" type="button">
+                                <i class="fa-solid fa-sparkles"></i> Criar e Entrar
+                            </button>
+                            <button class="btn btn-secondary btn-block" id="btnBackFromCreate" type="button">
+                                <i class="fa-solid fa-arrow-left"></i> Voltar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUBVIEW 3: Join Existing Room -->
+                <div class="room-subview" id="roomViewJoin" style="display: none;" hidden>
+                    <div class="card-header">
+                        <div class="icon-badge">
+                            <i class="fa-solid fa-right-to-bracket"></i>
+                        </div>
+                        <h2>Entrar em uma Sala</h2>
+                        <p>Digite o código da sala criada pelo seu amigo para assistir e transmitir juntos.</p>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="input-group">
+                            <div class="input-label-row">
+                                <label for="inputJoinRoomId">Código da Sala</label>
+                                <span class="room-status-indicator" id="joinRoomStatusIndicator"></span>
+                            </div>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-hashtag input-icon"></i>
+                                <input type="text" id="inputJoinRoomId" placeholder="Ex: grid-m8kp-7x9v" maxlength="32">
+                            </div>
+                        </div>
+
+                        <div class="input-group" id="joinPasswordGroup">
+                            <div class="input-label-row">
+                                <label for="inputJoinRoomPassword">Senha da Sala</label>
+                                <span class="password-hint" id="joinPasswordHint"></span>
+                            </div>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-lock input-icon"></i>
+                                <input type="password" id="inputJoinRoomPassword" placeholder="Digite a senha (se houver)" maxlength="32">
+                                <button class="btn-icon" id="btnToggleJoinPass" title="Mostrar/Ocultar Senha" type="button">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="room-action-buttons">
+                            <button class="btn btn-primary btn-block btn-lg" id="btnConfirmJoin" type="button">
+                                <i class="fa-solid fa-right-to-bracket"></i> Entrar na Sala
+                            </button>
+                            <button class="btn btn-secondary btn-block" id="btnBackFromJoin" type="button">
+                                <i class="fa-solid fa-arrow-left"></i> Voltar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -232,7 +332,7 @@
                                 <span class="substep-bullet">1.4</span>
                                 <div>
                                     <div class="substep-title">Concluir e Reiniciar o Windows</div>
-                                    <p>Na janela do instalador, clique no botão azul <strong>"Install Driver"</strong>. Quando surgir a confirmação <em>"Installation Complete"</em>, clique em OK e <strong class="text-highlight">reinicie o seu computador</strong> para o Windows ativar os canais de áudio.</p>
+                                    <p>Na janela do instalador, clique no botão <strong>"Install Driver"</strong>. Quando surgir a confirmação <em>"Installation Complete"</em>, clique em OK e <strong class="text-highlight">reinicie o seu computador</strong> para o Windows ativar os canais de áudio.</p>
                                 </div>
                             </div>
                         </div>
@@ -265,14 +365,14 @@
                             <div class="guide-substep">
                                 <span class="substep-bullet">2.2</span>
                                 <div>
-                                    <div class="substep-title">Aba Gravação: Ouvir o jogo no seu Fone Real</div>
-                                    <p>Vá para a aba <em>Gravação</em>, clique duas vezes em <code>CABLE Output</code> e abra a aba <strong>"Ouvir"</strong>:</p>
+                                    <div class="substep-title">Aba Gravação: Escutar o jogo no seu Fone Real</div>
+                                    <p>Vá para a aba <em>Gravação</em>, clique duas vezes em <code>CABLE Output</code> e abra a aba <strong>"Escutar"</strong>:</p>
                                     <ul class="guide-checklist">
-                                        <li>Marque a caixinha: ✅ <strong>"Ouvir o dispositivo"</strong> (Listen to this device).</li>
+                                        <li>Marque a caixinha: ✅ <strong>"Escutar o dispositivo"</strong> (Listen to this device).</li>
                                         <li>No campo <em>"Reproduzir através deste dispositivo"</em>: selecione o seu <strong>Fone de ouvido real</strong> (ex: Realtek, Fone USB, etc.).</li>
                                         <li>Clique em <strong>Aplicar</strong> e depois em <strong>OK</strong>.</li>
                                     </ul>
-                                    <p class="guide-subtext"><em>Pronto! Agora você ouve o jogo normalmente no seu fone, e o StreamGrid captura o áudio da live sem atrasos!</em></p>
+                                    <p class="guide-subtext"><em>Pronto! Agora você escuta o jogo normalmente no seu fone, e o StreamGrid captura o áudio da live sem atrasos!</em></p>
                                 </div>
                             </div>
                         </div>
@@ -357,7 +457,7 @@
                         </div>
                         <div class="summary-pill">
                             <span class="pill-label">CABLE Output</span>
-                            <span class="pill-val"><i class="fa-solid fa-ear-listen"></i> Ouvir: Ativado</span>
+                            <span class="pill-val"><i class="fa-solid fa-ear-listen"></i> Escutar: Ativado</span>
                             <span class="pill-note">Toca no seu fone</span>
                         </div>
                         <div class="summary-pill" style="border-color: rgba(239, 68, 68, 0.4);">
