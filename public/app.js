@@ -645,20 +645,63 @@ function getOrCreatePeerConnection(peerId) {
 }
 
 
-// SDP Optimization Helper (Unlocks 8Mbps 1080p60 Bitrate & Stereo Audio)
+// Prioritize Hardware Accelerated H.264 Codec if present in SDP
+function prioritizeH264(sdp) {
+    if (!sdp || typeof sdp !== 'string') return sdp;
+    const lines = sdp.split('\r\n');
+    const mVideoIndex = lines.findIndex(l => l.startsWith('m=video'));
+    if (mVideoIndex === -1) return sdp;
+
+    const h264Payloads = [];
+    for (const line of lines) {
+        if (line.startsWith('a=rtpmap:') && line.toLowerCase().includes('h264/90000')) {
+            const parts = line.split(' ')[0].split(':');
+            if (parts[1]) {
+                h264Payloads.push(parts[1]);
+            }
+        }
+    }
+
+    if (h264Payloads.length === 0) return sdp;
+
+    const mVideoParts = lines[mVideoIndex].split(' ');
+    const header = mVideoParts.slice(0, 3);
+    const currentPayloads = mVideoParts.slice(3);
+
+    const reordered = [
+        ...h264Payloads.filter(pt => currentPayloads.includes(pt)),
+        ...currentPayloads.filter(pt => !h264Payloads.includes(pt))
+    ];
+
+    lines[mVideoIndex] = [...header, ...reordered].join(' ');
+    return lines.join('\r\n');
+}
+
+// SDP Optimization Helper (Unlocks Smooth 1080p60 Bitrate & Stereo Audio without Freezes)
 function optimizeSDP(sdp) {
+    sdp = prioritizeH264(sdp);
     let lines = sdp.split('\r\n');
     let newLines = [];
 
     for (let line of lines) {
         newLines.push(line);
+
         // Opus Stereo & High Bitrate Audio (320kbps)
         if (line.startsWith('a=fmtp:') && line.includes('opus/48000')) {
             newLines[newLines.length - 1] = line + ';stereo=1;sprop-stereo=1;maxaveragebitrate=320000';
         }
+
+        // Smooth Bitrate Tuning: start at 3.5 Mbps, adapt up to 8 Mbps with 1.5 Mbps floor
+        if (line.startsWith('a=fmtp:') && (line.toLowerCase().includes('h264') || line.toLowerCase().includes('vp8') || line.toLowerCase().includes('vp9'))) {
+            if (!line.includes('x-google-max-bitrate')) {
+                newLines[newLines.length - 1] = line + ';x-google-min-bitrate=1500;x-google-start-bitrate=3500;x-google-max-bitrate=8000';
+            }
+        }
+
         // Inject Video Bitrate Booster (8000 Kbps max bitrate for crisp 1080p 60FPS)
         if (line.startsWith('m=video')) {
             newLines.push('b=AS:8000');
+            newLines.push('b=TIAS:8000000');
         }
     }
     return newLines.join('\r\n');
@@ -705,7 +748,20 @@ function addLocalTracksToPC(pc) {
     localStream.getTracks().forEach(track => {
         const exists = senders.some(s => s.track && s.track.id === track.id);
         if (!exists) {
-            pc.addTrack(track, localStream);
+            const sender = pc.addTrack(track, localStream);
+            if (track.kind === 'video' && sender && typeof sender.getParameters === 'function') {
+                try {
+                    const params = sender.getParameters();
+                    if (!params.degradationPreference) {
+                        params.degradationPreference = 'maintain-framerate';
+                    }
+                    if (params.encodings && params.encodings[0]) {
+                        params.encodings[0].maxBitrate = 8000000;
+                        params.encodings[0].maxFramerate = 60;
+                    }
+                    sender.setParameters(params).catch(() => {});
+                } catch (e) {}
+            }
         }
     });
 }
@@ -852,9 +908,15 @@ async function startScreenShare() {
         }
 
         // --- Step 4: Build final stream ---
+        const videoTrack = screenStream.getVideoTracks()[0];
+        if (videoTrack && 'contentHint' in videoTrack) {
+            videoTrack.contentHint = 'motion';
+            console.log('[WebRTC] videoTrack contentHint set to "motion" for fluid 60FPS gaming');
+        }
+
         if (audioTrack && !screenStream.getAudioTracks().includes(audioTrack)) {
             // Merge video from screen + audio from CABLE
-            localStream = new MediaStream([screenStream.getVideoTracks()[0], audioTrack]);
+            localStream = new MediaStream([videoTrack, audioTrack]);
         } else {
             localStream = screenStream;
         }
