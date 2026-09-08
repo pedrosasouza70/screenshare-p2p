@@ -74,9 +74,19 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Targeted WebRTC Signal Relay (Peer-to-Peer Mesh)
+    // Targeted WebRTC Signal Relay (Peer-to-Peer Mesh with Room Isolation)
     socket.on('signal', ({ targetId, signal }) => {
         if (!targetId || !signal) return;
+        const senderRoom = socket.roomId;
+        if (!senderRoom) return;
+
+        // Security & Isolation: Verify target socket exists AND is in the EXACT same room
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (!targetSocket || targetSocket.roomId !== senderRoom) {
+            // Drop signal if sender and target are in different rooms
+            return;
+        }
+
         io.to(targetId).emit('signal', {
             senderId: socket.id,
             signal
@@ -105,12 +115,19 @@ io.on('connection', (socket) => {
         if (rid && rooms.has(rid)) {
             const r = rooms.get(rid);
             r.members.delete(sock.id);
+            const wasStreaming = r.activeStreams.has(sock.id);
             r.activeStreams.delete(sock.id);
 
             if (r.members.size === 0) {
                 rooms.delete(rid);
                 console.log(`[x] Room "${rid}" deleted (empty)`);
             } else {
+                if (wasStreaming) {
+                    io.to(rid).emit('stream-state', {
+                        senderId: sock.id,
+                        state: 'stopped'
+                    });
+                }
                 io.to(rid).emit('user-left', {
                     socketId: sock.id,
                     memberCount: r.members.size

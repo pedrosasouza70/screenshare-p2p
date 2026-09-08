@@ -93,12 +93,51 @@ inputRoomId.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') joinRoom();
 });
 
-function joinRoom() {
-    roomId = inputRoomId.value.trim().toLowerCase();
-    if (!roomId) {
-        inputRoomId.value = generateRandomRoomId();
-        roomId = inputRoomId.value;
+function cleanupRoomState() {
+    console.log('[Room] Cleaning up previous room peer connections and stream tiles...');
+    
+    // 1. Stop local screen share if active
+    if (localStream) {
+        stopScreenShare();
     }
+
+    // 2. Terminate and cleanup all active WebRTC peer connections from old room
+    for (const [peerId, peerObj] of peers.entries()) {
+        try {
+            if (peerObj.stream) {
+                peerObj.stream.getTracks().forEach(track => track.stop());
+            }
+            if (peerObj.pc) {
+                peerObj.pc.close();
+            }
+            if (peerObj.tileEl) {
+                peerObj.tileEl.remove();
+            }
+        } catch (e) {
+            console.warn('[Room] Error closing peer:', peerId, e);
+        }
+    }
+    peers.clear();
+
+    // 3. Remove all remote stream tiles from DOM
+    const remoteTiles = streamGrid.querySelectorAll('.stream-tile:not(#localStreamTile)');
+    remoteTiles.forEach(tile => tile.remove());
+
+    // 4. Reset participant count and grid state
+    updateMemberCount(1);
+    updateGridState();
+}
+
+function joinRoom() {
+    const newRoomId = inputRoomId.value.trim().toLowerCase() || generateRandomRoomId();
+    inputRoomId.value = newRoomId;
+
+    // If switching rooms, close all previous connections cleanly
+    if (roomId && roomId !== newRoomId) {
+        cleanupRoomState();
+    }
+
+    roomId = newRoomId;
 
     // Persist room in localStorage
     try { localStorage.setItem(STORAGE_KEY, roomId); } catch(e) {}
