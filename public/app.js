@@ -402,43 +402,102 @@ btnStartShareBig.addEventListener('click', startScreenShare);
 
 async function startScreenShare() {
     try {
-        const primaryConstraints = {
-            video: {
-                width: { ideal: 1920, max: 1920 },
-                height: { ideal: 1080, max: 1080 },
-                frameRate: { ideal: 60, max: 60 }
-            },
-            audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-            }
+        const videoConstraints = {
+            width: { ideal: 1920, max: 1920 },
+            height: { ideal: 1080, max: 1080 },
+            frameRate: { ideal: 60, max: 60 }
         };
 
+        // --- Step 1: Detect VB-Audio CABLE Output (appears as audio input) ---
+        let cableOutputId = null;
         try {
-            localStream = await navigator.mediaDevices.getDisplayMedia(primaryConstraints);
-        } catch (mediaErr) {
-            console.warn('[Capture] Primary capture failed:', mediaErr);
-            if (mediaErr.name === 'NotAllowedError') {
-                return; // User cancelled
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cableOutput = devices.find(d =>
+                d.kind === 'audioinput' &&
+                d.label.toLowerCase().includes('cable output')
+            );
+            if (cableOutput) {
+                cableOutputId = cableOutput.deviceId;
+                console.log('[Audio] VB-Cable detected:', cableOutput.label);
+            } else {
+                console.log('[Audio] VB-Cable not found, will use system audio');
             }
-            // Fallback 1: Standard capture
-            try {
-                localStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { frameRate: { ideal: 60 } },
-                    audio: true
-                });
-            } catch (fallbackErr) {
-                if (fallbackErr.name === 'NotAllowedError') return;
-                // Fallback 2: Video-only if audio driver is exclusively locked
-                localStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: true,
-                    audio: false
-                });
-            }
+        } catch (e) {
+            console.warn('[Audio] Device enumeration failed:', e);
         }
 
-        // Add Local Tile preview in Grid
+        // --- Step 2: Capture screen ---
+        let screenStream;
+
+        if (cableOutputId) {
+            // VB-Cable mode: capture VIDEO ONLY (avoids getDisplayMedia audio bug with VB-Cable)
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: videoConstraints,
+                    audio: false
+                });
+            } catch (err) {
+                if (err.name === 'NotAllowedError') return;
+                throw err;
+            }
+
+            // Capture audio DIRECTLY from CABLE Output via getUserMedia
+            // This captures ONLY what goes through the cable (game audio)
+            // Discord audio on speakers is NOT captured = perfect isolation
+            let audioTrack = null;
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        deviceId: { exact: cableOutputId },
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        channelCount: 2,
+                        sampleRate: 48000
+                    }
+                });
+                audioTrack = audioStream.getAudioTracks()[0];
+                console.log('[Audio] ✅ Capturing isolated audio from VB-Cable Output');
+            } catch (audioErr) {
+                console.warn('[Audio] VB-Cable audio capture failed:', audioErr.message);
+            }
+
+            // Merge video + isolated audio into one stream
+            if (audioTrack) {
+                localStream = new MediaStream([screenStream.getVideoTracks()[0], audioTrack]);
+            } else {
+                localStream = screenStream;
+                console.warn('[Audio] Stream will have no audio (VB-Cable capture failed)');
+            }
+
+        } else {
+            // Standard mode (no VB-Cable): use getDisplayMedia with system audio
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: videoConstraints,
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
+            } catch (mediaErr) {
+                if (mediaErr.name === 'NotAllowedError') return;
+                console.warn('[Capture] Audio capture failed, trying video-only:', mediaErr.message);
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: videoConstraints,
+                        audio: false
+                    });
+                } catch (fallbackErr) {
+                    if (fallbackErr.name === 'NotAllowedError') return;
+                    throw fallbackErr;
+                }
+            }
+            localStream = screenStream;
+        }
+
+        // --- Step 3: Add Local Tile preview in Grid ---
         const localTile = createStreamTile('local', localStream, 'Você (Sua Tela)', true);
         localTile.id = 'localStreamTile';
         streamGrid.appendChild(localTile);
@@ -452,7 +511,7 @@ async function startScreenShare() {
             stopScreenShare();
         };
 
-        // Add tracks & send offer to all active peers in room
+        // --- Step 4: Send stream to all peers ---
         for (const [peerId, peerObj] of peers.entries()) {
             addLocalTracksToPC(peerObj.pc);
             let offer = await peerObj.pc.createOffer();
@@ -465,6 +524,10 @@ async function startScreenShare() {
         }
 
         socket.emit('stream-state', { roomId, state: 'started' });
+
+        // Log audio status
+        const audioTracks = localStream.getAudioTracks();
+        console.log(`[Capture] ✅ Sharing started | Video: yes | Audio: ${audioTracks.length > 0 ? 'yes (' + audioTracks[0].label + ')' : 'no'}`);
 
     } catch (err) {
         console.error('[Capture] Error getting display media:', err);
