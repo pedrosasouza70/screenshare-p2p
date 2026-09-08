@@ -794,13 +794,6 @@ function getOrCreatePeerConnection(peerId) {
     pc.ontrack = (event) => {
         console.log('[WebRTC] Received track from:', peerId, event.track.kind, event.track.id);
 
-        // Minimal playout delay hint for real-time responsiveness in gaming & desktop sharing
-        if (event.receiver && 'playoutDelayHint' in event.receiver) {
-            try {
-                event.receiver.playoutDelayHint = 0;
-            } catch (e) {}
-        }
-
         // Remove old track of the same kind from peerObj.stream (without calling .stop() on remote tracks)
         peerObj.stream.getTracks().filter(t => t.kind === event.track.kind).forEach(oldTrack => {
             if (oldTrack.id !== event.track.id) {
@@ -822,14 +815,19 @@ function getOrCreatePeerConnection(peerId) {
         if (peerObj.tileEl) {
             const videoEl = peerObj.tileEl.querySelector('video');
             if (videoEl) {
-                // ALWAYS re-assign srcObject so Chromium/WebKit binds the newly arrived video decoder
-                videoEl.srcObject = peerObj.stream;
-                videoEl.play().catch(e => {
-                    console.warn('[Playback] Autoplay blocked, playing muted for mobile:', e);
-                    videoEl.muted = true;
-                    videoEl.play().catch(err => console.error('[Playback] Video play failed completely:', err));
-                    showTapToUnmuteBadge(peerObj.tileEl, videoEl);
-                });
+                if (videoEl.srcObject !== peerObj.stream) {
+                    videoEl.srcObject = peerObj.stream;
+                }
+                const playPromise = videoEl.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(e => {
+                        console.warn('[Playback] Autoplay blocked, forcing muted play for mobile:', e);
+                        videoEl.muted = true;
+                        videoEl.setAttribute('muted', '');
+                        videoEl.play().catch(err => console.error('[Playback] Video play failed completely:', err));
+                        showTapToUnmuteBadge(peerObj.tileEl, videoEl);
+                    });
+                }
             }
         }
 
@@ -838,8 +836,12 @@ function getOrCreatePeerConnection(peerId) {
             if (peerObj.tileEl) {
                 const videoEl = peerObj.tileEl.querySelector('video');
                 if (videoEl) {
-                    videoEl.srcObject = peerObj.stream;
-                    videoEl.play().catch(e => {});
+                    if (videoEl.srcObject !== peerObj.stream) {
+                        videoEl.srcObject = peerObj.stream;
+                    }
+                    if (videoEl.paused) {
+                        videoEl.play().catch(() => {});
+                    }
                 }
             }
         };
@@ -866,12 +868,23 @@ function getOrCreatePeerConnection(peerId) {
 }
 
 
-// Prioritize Hardware Accelerated H.264 Codec if present in SDP
+// Prioritize Universal H.264 Codec (Constrained Baseline 42e01f first for 100% Mobile & PC compatibility)
 function prioritizeH264(sdp) {
     if (!sdp || typeof sdp !== 'string') return sdp;
     const lines = sdp.split('\r\n');
     const mVideoIndex = lines.findIndex(l => l.startsWith('m=video'));
     if (mVideoIndex === -1) return sdp;
+
+    // Map payload -> profile-level-id from a=fmtp lines
+    const payloadProfiles = new Map();
+    for (const line of lines) {
+        if (line.startsWith('a=fmtp:')) {
+            const match = line.match(/^a=fmtp:(\d+)\s+.*profile-level-id=([0-9a-fA-F]+)/i);
+            if (match) {
+                payloadProfiles.set(match[1], match[2].toLowerCase());
+            }
+        }
+    }
 
     const h264Payloads = [];
     for (const line of lines) {
@@ -884,6 +897,17 @@ function prioritizeH264(sdp) {
     }
 
     if (h264Payloads.length === 0) return sdp;
+
+    // Prioritize 42e01f (Constrained Baseline) first so Android & iOS mobile devices can decode in hardware
+    h264Payloads.sort((a, b) => {
+        const profA = payloadProfiles.get(a) || '';
+        const profB = payloadProfiles.get(b) || '';
+        const isBaselineA = profA.includes('42e0');
+        const isBaselineB = profB.includes('42e0');
+        if (isBaselineA && !isBaselineB) return -1;
+        if (!isBaselineA && isBaselineB) return 1;
+        return 0;
+    });
 
     const mVideoParts = lines[mVideoIndex].split(' ');
     const header = mVideoParts.slice(0, 3);
@@ -1415,12 +1439,23 @@ function createStreamTile(id, stream, labelText, isMuted) {
     tile.className = 'stream-tile';
     tile.dataset.peerId = id;
 
+    const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
+    // Mobile browsers (Android Chrome & iOS Safari) strictly block unmuted video autoplay.
+    // Starting with muted=true guarantees immediate hardware decoding and renders frames without black screen.
+    const startMuted = isMuted || isMobile;
+
     const video = document.createElement('video');
     video.autoplay = true;
     video.playsInline = true;
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
-    video.muted = isMuted; // Mute local preview to prevent acoustic feedback
+    if (startMuted) {
+        video.muted = true;
+        video.defaultMuted = true;
+        video.setAttribute('muted', '');
+    } else {
+        video.muted = false;
+    }
     video.srcObject = stream;
 
     // Tile Header Badge (Live + Name)
@@ -1500,6 +1535,10 @@ function createStreamTile(id, stream, labelText, isMuted) {
         qosBadge.className = 'tile-quality-badge';
         qosBadge.innerHTML = '<span class="qos-dot good"></span><span class="qos-label">Bom</span>';
         tile.appendChild(qosBadge);
+
+        if (isMobile) {
+            showTapToUnmuteBadge(tile, video);
+        }
     }
 
     return tile;
