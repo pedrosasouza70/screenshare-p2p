@@ -1674,32 +1674,32 @@ btnCopyLink.addEventListener('click', () => {
     });
 });
 
-// Fullscreen App
-btnFullscreen.addEventListener('click', () => {
-    // If there is an active stream, fullscreen that stream first
-    const tiles = streamGrid.querySelectorAll('.stream-tile');
-    if (tiles.length > 0) {
-        const firstTile = tiles[0];
-        const video = firstTile.querySelector('video');
-        toggleTileFullscreen(firstTile, video);
-        return;
-    }
+// Fullscreen App (Optional Toolbar Button)
+if (btnFullscreen) {
+    btnFullscreen.addEventListener('click', () => {
+        const tiles = streamGrid.querySelectorAll('.stream-tile');
+        if (tiles.length > 0) {
+            const firstTile = tiles[0];
+            const video = firstTile.querySelector('video');
+            toggleTileFullscreen(firstTile, video);
+            return;
+        }
 
-    // Fallback: document fullscreen
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        const reqDocFs = document.documentElement.requestFullscreen || 
-                         document.documentElement.webkitRequestFullscreen ||
-                         document.documentElement.mozRequestFullScreen;
-        if (reqDocFs) {
-            try { reqDocFs.call(document.documentElement).catch(() => {}); } catch(e) {}
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            const reqDocFs = document.documentElement.requestFullscreen || 
+                             document.documentElement.webkitRequestFullscreen ||
+                             document.documentElement.mozRequestFullScreen;
+            if (reqDocFs) {
+                try { reqDocFs.call(document.documentElement).catch(() => {}); } catch(e) {}
+            }
+        } else {
+            const exitDocFs = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exitDocFs) {
+                try { exitDocFs.call(document).catch(() => {}); } catch(e) {}
+            }
         }
-    } else {
-        const exitDocFs = document.exitFullscreen || document.webkitExitFullscreen;
-        if (exitDocFs) {
-            try { exitDocFs.call(document).catch(() => {}); } catch(e) {}
-        }
-    }
-});
+    });
+}
 
 // Audio Guide Modal
 btnAudioGuide.addEventListener('click', () => {
