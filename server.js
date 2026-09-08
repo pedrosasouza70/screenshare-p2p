@@ -29,18 +29,30 @@ const rooms = new Map();
 io.on('connection', (socket) => {
     console.log(`[+] Client connected: ${socket.id}`);
 
-    socket.on('join-room', ({ roomId, clientId }) => {
+    socket.on('join-room', ({ roomId, clientId, password }) => {
         const cleanRoomId = (roomId || '').trim().toLowerCase();
         if (!cleanRoomId) return;
 
         let room = rooms.get(cleanRoomId);
+        const cleanPassword = (password || '').trim();
 
         if (!room) {
             room = {
+                password: cleanPassword || null,
                 members: new Map(), // socketId -> clientId
                 activeStreams: new Set()
             };
             rooms.set(cleanRoomId, room);
+        } else if (room.password) {
+            // Password-protected room check
+            if (room.password !== cleanPassword) {
+                console.log(`[Auth] Rejected socket ${socket.id} for room "${cleanRoomId}": Invalid password`);
+                socket.emit('join-error', {
+                    error: 'invalid_password',
+                    message: 'Senha incorreta para esta sala.'
+                });
+                return;
+            }
         }
 
         // Leave any previous room
@@ -79,7 +91,8 @@ io.on('connection', (socket) => {
             users: otherUsers,
             activeStreams: activeStreams,
             socketId: socket.id,
-            memberCount: room.members.size
+            memberCount: room.members.size,
+            hasPassword: Boolean(room.password)
         });
 
         // Notify existing members about new user
@@ -94,14 +107,15 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Check room existence & member count (for uniqueness check)
+    // Check room existence, member count & password requirement
     socket.on('check-room', ({ roomId }, callback) => {
         const cleanRoomId = (roomId || '').trim().toLowerCase();
         const room = rooms.get(cleanRoomId);
         if (typeof callback === 'function') {
             callback({
                 exists: Boolean(room && room.members.size > 0),
-                memberCount: room ? room.members.size : 0
+                memberCount: room ? room.members.size : 0,
+                hasPassword: Boolean(room && room.password)
             });
         }
     });

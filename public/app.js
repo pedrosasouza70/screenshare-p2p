@@ -59,6 +59,12 @@ const btnChangeRoom = document.getElementById('btnChangeRoom');
 const displayRoomId = document.getElementById('displayRoomId');
 const memberCountText = document.getElementById('memberCountText');
 const btnCopyLink = document.getElementById('btnCopyLink');
+const inputRoomPassword = document.getElementById('inputRoomPassword');
+const btnTogglePasswordVisibility = document.getElementById('btnTogglePasswordVisibility');
+const roomErrorBanner = document.getElementById('roomErrorBanner');
+const passwordHint = document.getElementById('passwordHint');
+
+let currentRoomPassword = '';
 
 const streamGrid = document.getElementById('streamGrid');
 const emptyGridPlaceholder = document.getElementById('emptyGridPlaceholder');
@@ -113,11 +119,51 @@ if (btnThemeToggle) {
 }
 initTheme();
 
+// Error Banner Helpers
+function showRoomError(msg) {
+    if (!roomErrorBanner) return;
+    roomErrorBanner.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <span>${msg}</span>`;
+    roomErrorBanner.style.display = 'flex';
+    roomErrorBanner.hidden = false;
+}
+
+function clearRoomError() {
+    if (!roomErrorBanner) return;
+    roomErrorBanner.innerHTML = '';
+    roomErrorBanner.style.display = 'none';
+    roomErrorBanner.hidden = true;
+}
+
+// Password visibility toggle handler
+if (btnTogglePasswordVisibility && inputRoomPassword) {
+    btnTogglePasswordVisibility.addEventListener('click', (e) => {
+        e.preventDefault();
+        const isPassword = inputRoomPassword.type === 'password';
+        inputRoomPassword.type = isPassword ? 'text' : 'password';
+        btnTogglePasswordVisibility.innerHTML = isPassword 
+            ? '<i class="fa-solid fa-eye-slash"></i>' 
+            : '<i class="fa-solid fa-eye"></i>';
+    });
+}
+
+if (inputRoomPassword) {
+    inputRoomPassword.addEventListener('input', clearRoomError);
+    inputRoomPassword.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') joinRoom();
+    });
+}
+
 // Auto populate room code from URL params or localStorage
 window.addEventListener('DOMContentLoaded', () => {
     initTheme();
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
+    const passParam = urlParams.get('pass');
+    
+    if (passParam && inputRoomPassword) {
+        inputRoomPassword.value = passParam;
+    }
+
     let savedRoom = null;
     try { savedRoom = localStorage.getItem(STORAGE_KEY); } catch(e) {}
 
@@ -158,6 +204,10 @@ function checkRoomStatus(roomIdToCheck) {
     if (!cleanId || cleanId.length < 3) {
         roomStatusIndicator.textContent = '';
         roomStatusIndicator.className = 'room-status-indicator';
+        if (passwordHint) {
+            passwordHint.textContent = '';
+            passwordHint.className = 'password-hint';
+        }
         return;
     }
 
@@ -166,17 +216,32 @@ function checkRoomStatus(roomIdToCheck) {
             if (!res) return;
             if (res.exists) {
                 const count = res.memberCount;
-                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-check"></i> Sala ativa (${count} ${count === 1 ? 'pessoa' : 'pessoas'})`;
+                const lockBadge = res.hasPassword ? ' &bull; <i class="fa-solid fa-lock" title="Protegida por senha"></i> Com senha' : '';
+                roomStatusIndicator.innerHTML = `<i class="fa-solid fa-circle-check"></i> Sala ativa (${count} ${count === 1 ? 'pessoa' : 'pessoas'})${lockBadge}`;
                 roomStatusIndicator.className = 'room-status-indicator active';
+                if (passwordHint) {
+                    if (res.hasPassword) {
+                        passwordHint.innerHTML = '<i class="fa-solid fa-lock"></i> Requer senha';
+                        passwordHint.className = 'password-hint required';
+                    } else {
+                        passwordHint.innerHTML = 'Sem senha (Pública)';
+                        passwordHint.className = 'password-hint optional';
+                    }
+                }
             } else {
                 roomStatusIndicator.innerHTML = `<i class="fa-solid fa-sparkles"></i> Sala nova e exclusiva`;
                 roomStatusIndicator.className = 'room-status-indicator new';
+                if (passwordHint) {
+                    passwordHint.innerHTML = 'Opcional (Deixe em branco p/ pública)';
+                    passwordHint.className = 'password-hint optional';
+                }
             }
         });
     }
 }
 
 inputRoomId.addEventListener('input', () => {
+    clearRoomError();
     clearTimeout(checkRoomTimeout);
     checkRoomTimeout = setTimeout(() => {
         checkRoomStatus(inputRoomId.value);
@@ -184,8 +249,10 @@ inputRoomId.addEventListener('input', () => {
 });
 
 btnRandomRoom.addEventListener('click', () => {
+    clearRoomError();
     const uniqueId = generateRandomRoomId();
     inputRoomId.value = uniqueId;
+    if (inputRoomPassword) inputRoomPassword.value = '';
     checkRoomStatus(uniqueId);
     inputRoomId.focus();
     inputRoomId.select();
@@ -194,8 +261,10 @@ btnRandomRoom.addEventListener('click', () => {
 // Create New Unique Room Action
 if (btnCreateNewRoom) {
     btnCreateNewRoom.addEventListener('click', () => {
+        clearRoomError();
         const uniqueId = generateRandomRoomId();
         inputRoomId.value = uniqueId;
+        if (inputRoomPassword) inputRoomPassword.value = '';
         checkRoomStatus(uniqueId);
         joinRoom();
     });
@@ -243,8 +312,12 @@ function cleanupRoomState() {
 }
 
 function joinRoom() {
+    clearRoomError();
     const newRoomId = inputRoomId.value.trim().toLowerCase() || generateRandomRoomId();
     inputRoomId.value = newRoomId;
+
+    const pass = (inputRoomPassword ? inputRoomPassword.value.trim() : '');
+    currentRoomPassword = pass;
 
     // If switching rooms, close all previous connections cleanly
     if (roomId && roomId !== newRoomId) {
@@ -270,7 +343,7 @@ function joinRoom() {
     roomModal.hidden = true;
 
     if (socket) {
-        socket.emit('join-room', { roomId, clientId });
+        socket.emit('join-room', { roomId, clientId, password: currentRoomPassword });
     }
 }
 
@@ -278,10 +351,12 @@ function joinRoom() {
 // Change Room Button Handler
 if (btnChangeRoom) {
     btnChangeRoom.addEventListener('click', () => {
+        clearRoomError();
         roomModal.style.removeProperty('display');
         roomModal.style.display = 'flex';
         roomModal.classList.remove('hidden');
         roomModal.hidden = false;
+        checkRoomStatus(inputRoomId.value);
         inputRoomId.focus();
         inputRoomId.select();
     });
@@ -293,7 +368,7 @@ socket.on('connect', () => {
     console.log('[Socket] Connected to server. Socket ID:', myId);
     if (roomId) {
         console.log('[Socket] Joining room on connect:', roomId);
-        socket.emit('join-room', { roomId, clientId });
+        socket.emit('join-room', { roomId, clientId, password: currentRoomPassword });
     }
 });
 
@@ -301,13 +376,36 @@ socket.on('disconnect', (reason) => {
     console.warn('[Socket] Disconnected from server:', reason);
 });
 
+// Authentication and Room Error Handler
+socket.on('join-error', ({ error, message }) => {
+    console.warn('[Auth] Join error:', error, message);
+    if (error === 'invalid_password') {
+        showRoomError(message || 'Senha incorreta para esta sala.');
+        // Reopen room modal so the user can enter/correct password
+        roomModal.style.removeProperty('display');
+        roomModal.style.display = 'flex';
+        roomModal.classList.remove('hidden');
+        roomModal.hidden = false;
+        if (inputRoomPassword) {
+            inputRoomPassword.focus();
+            inputRoomPassword.select();
+        }
+    }
+});
+
 // Socket Events
-socket.on('room-users', async ({ users, activeStreams, socketId, memberCount }) => {
+socket.on('room-users', async ({ users, activeStreams, socketId, memberCount, hasPassword }) => {
     myId = socketId;
     console.log('[Socket] Joined room. My ID:', myId, 'Other users:', users, 'Active streams:', activeStreams);
 
     // Sync member count immediately for the joiner
     updateMemberCount(memberCount || (users.length + 1));
+
+    if (hasPassword) {
+        displayRoomId.innerHTML = `${roomId} <i class="fa-solid fa-lock" style="font-size:0.75rem;margin-left:4px;" title="Sala protegida por senha"></i>`;
+    } else {
+        displayRoomId.textContent = roomId;
+    }
 
     // Initialize peer connections for existing users
     users.forEach(peerId => {
@@ -976,10 +1074,13 @@ function updateGridState() {
 
 // Copy Invite Link
 btnCopyLink.addEventListener('click', () => {
-    const inviteUrl = window.location.href;
+    let inviteUrl = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
+    if (currentRoomPassword) {
+        inviteUrl += `&pass=${encodeURIComponent(currentRoomPassword)}`;
+    }
     navigator.clipboard.writeText(inviteUrl).then(() => {
         const origText = btnCopyLink.innerHTML;
-        btnCopyLink.innerHTML = '<i class="fa-solid fa-check"></i> Copiado!';
+        btnCopyLink.innerHTML = '<i class="fa-solid fa-check"></i> Link Copiado!';
         setTimeout(() => {
             btnCopyLink.innerHTML = origText;
         }, 2000);

@@ -64,6 +64,8 @@
                 </div>
 
                 <div class="card-body">
+                    <div class="error-banner" id="roomErrorBanner" style="display: none;" hidden></div>
+
                     <div class="input-group">
                         <div class="input-label-row">
                             <label for="inputRoomId">Código da Sala</label>
@@ -74,6 +76,20 @@
                             <input type="text" id="inputRoomId" placeholder="Ex: grid-m8kp-7x9v" maxlength="32">
                             <button class="btn-icon" id="btnRandomRoom" title="Gerar novo código único aleatório">
                                 <i class="fa-solid fa-shuffle"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="input-group" id="passwordGroup">
+                        <div class="input-label-row">
+                            <label for="inputRoomPassword">Senha da Sala (Opcional)</label>
+                            <span class="password-hint" id="passwordHint"></span>
+                        </div>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-lock input-icon"></i>
+                            <input type="password" id="inputRoomPassword" placeholder="Deixe em branco se for pública" maxlength="32">
+                            <button class="btn-icon" id="btnTogglePasswordVisibility" title="Mostrar/Ocultar Senha" type="button">
+                                <i class="fa-solid fa-eye"></i>
                             </button>
                         </div>
                     </div>

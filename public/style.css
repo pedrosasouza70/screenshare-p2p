@@ -12,6 +12,7 @@
     --primary-subtle: rgba(37, 99, 235, 0.12);
     --danger: #ef4444;
     --danger-hover: #dc2626;
+    --warning: #f59e0b;
     --success: #10b981;
 
     --text-main: #f8fafc;
@@ -47,6 +48,7 @@
     --primary-subtle: rgba(37, 99, 235, 0.08);
     --danger: #ef4444;
     --danger-hover: #dc2626;
+    --warning: #d97706;
     --success: #10b981;
 
     --text-main: #0f172a;
@@ -358,6 +360,41 @@ body {
 
 .room-status-indicator.new {
     color: var(--primary);
+}
+
+.password-hint {
+    font-size: 0.74rem;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.password-hint.required {
+    color: var(--warning);
+}
+
+.password-hint.optional {
+    color: var(--text-muted);
+}
+
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 16px;
+    animation: fadeIn 0.2s ease;
+}
+
+[data-theme="light"] .error-banner {
+    background: #fee2e2;
+    border-color: #fca5a5;
+    color: #b91c1c;
 }
 
 .room-action-buttons {
