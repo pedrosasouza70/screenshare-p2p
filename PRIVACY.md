@@ -40,7 +40,7 @@ The Windows desktop version includes a native companion module for selective pro
 
 ## 4. Third-Party Services & Infrastructure
 
-* **STUN Servers:** StreamGrid utilizes public Google STUN servers (`stun:stun.l.google.com:19302`) solely for NAT traversal (discovering external reflexive IP candidates for WebRTC handshakes). STUN requests do not carry room names, user identities, or media content.
+* **STUN & TURN Relay Servers:** StreamGrid utilizes Google STUN servers and dedicated TURN relays (Metered.ca) solely for NAT and CGNAT traversal (discovering external reflexive candidates and relaying encrypted media packets when direct P2P connections are blocked by restrictive symmetric firewalls). Media streams traversing TURN relays remain encrypted end-to-end via DTLS/SRTP; relay servers do not inspect room names, passwords, or decrypted content.
 * **Hosting Infrastructure Logs (Render):** The public web demonstration and signaling instance are deployed on Render infrastructure. Standard connection logs (such as IP addresses, User-Agent strings, and request timestamps) are automatically processed and temporarily retained by Render's edge proxies in accordance with their privacy policy to maintain network availability, DDoS mitigation, and operational security.
 
 ---

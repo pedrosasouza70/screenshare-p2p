@@ -288,28 +288,31 @@ const socket = io(SERVER_URL, {
     reconnectionDelay: 1000
 });
 
-// STUN + TURN servers for high NAT/CGNAT penetration (essential for Brazilian fiber ISPs)
+// STUN + Dedicated TURN servers for high NAT/CGNAT penetration (Metered Global Relay)
 const rtcConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' },
-        // Free TURN relay (Metered.ca Open Relay) — fallback when STUN fails behind symmetric NAT/CGNAT
+        { urls: 'stun:stun.relay.metered.ca:80' },
         {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:80',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
         },
         {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
         },
         {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: 'turn:global.relay.metered.ca:443',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
+        },
+        {
+            urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
         }
     ],
     iceCandidatePoolSize: 4
@@ -1056,9 +1059,12 @@ socket.on('join-error', ({ error, message }) => {
 });
 
 // Socket Events
-socket.on('room-users', async ({ users, userNames, activeStreams, socketId, memberCount, hasPassword }) => {
+socket.on('room-users', async ({ users, userNames, activeStreams, socketId, memberCount, hasPassword, iceServers }) => {
     myId = socketId;
     console.log('[Socket] Joined room. My ID:', myId, 'Other users:', users, 'Active streams:', activeStreams);
+    if (Array.isArray(iceServers) && iceServers.length > 0) {
+        rtcConfig.iceServers = iceServers;
+    }
     remoteActiveStreams.clear();
     if (Array.isArray(activeStreams)) {
         activeStreams.forEach(id => { if (id !== myId) remoteActiveStreams.add(id); });

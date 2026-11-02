@@ -59,6 +59,51 @@ const loginAttempts = new Map();
 // Validation and sanitization helpers
 const ROOM_ID_REGEX = /^[a-z0-9_-]{3,64}$/;
 
+// Dynamic STUN/TURN configuration for WebRTC ICE negotiation (NAT/CGNAT traversal)
+function getIceServers() {
+    const customTurnUrl = process.env.TURN_URL;
+    const customTurnUsername = process.env.TURN_USERNAME;
+    const customTurnCredential = process.env.TURN_CREDENTIAL || process.env.TURN_PASSWORD;
+
+    if (customTurnUrl && customTurnUsername && customTurnCredential) {
+        return [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            {
+                urls: customTurnUrl.split(',').map(u => u.trim()),
+                username: customTurnUsername,
+                credential: customTurnCredential
+            }
+        ];
+    }
+
+    return [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.relay.metered.ca:80' },
+        {
+            urls: 'turn:global.relay.metered.ca:80',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
+        },
+        {
+            urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
+        },
+        {
+            urls: 'turn:global.relay.metered.ca:443',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
+        },
+        {
+            urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+            username: 'bdb82d81274b845949ec5939',
+            credential: 'N+kTpUw0tNRzeSel'
+        }
+    ];
+}
+
 function isPlainObject(obj) {
     return obj !== null && typeof obj === 'object' && !Array.isArray(obj);
 }
@@ -301,7 +346,8 @@ io.on('connection', (socket) => {
             activeStreams: activeStreams,
             socketId: socket.id,
             memberCount: room.members.size,
-            hasPassword: Boolean(room.passwordHash)
+            hasPassword: Boolean(room.passwordHash),
+            iceServers: getIceServers()
         });
 
         // Notify existing members about new user
