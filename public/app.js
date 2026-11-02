@@ -1098,6 +1098,7 @@ socket.on('room-users', async ({ users, userNames, activeStreams, socketId, memb
             addLocalTracksToPC(peerObj.pc);
             sendOffer(peerId);
         }
+        updateSendersForActivePeers();
     }
 });
 
@@ -1115,6 +1116,15 @@ socket.on('user-joined', async ({ socketId, userName, memberCount }) => {
     if (localStream) {
         addLocalTracksToPC(pc);
         sendOffer(socketId);
+        updateSendersForActivePeers();
+
+        // Pulso inicial de Keyframe: assegura envio de IDR frame assim que o recém-chegado negociar
+        setTimeout(() => {
+            const vSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (vSender && localStream && localStream.getVideoTracks()[0]) {
+                try { vSender.replaceTrack(localStream.getVideoTracks()[0]); } catch (e) {}
+            }
+        }, 400);
     }
 });
 
@@ -1128,6 +1138,9 @@ socket.on('user-left', ({ socketId, memberCount }) => {
     playPresenceChime('leave');
     removePeerConnection(socketId);
     updateMemberCount(memberCount);
+    if (localStream) {
+        updateSendersForActivePeers();
+    }
 });
 
 socket.on('room-status', ({ memberCount }) => {
@@ -1237,6 +1250,15 @@ socket.on('signal', async ({ senderId, signal }) => {
             } else if (peerObj) {
                 // Buffer candidate until remote description is processed
                 peerObj.iceCandidateQueue.push(candidate);
+            }
+        } else if (signal.type === 'request-keyframe') {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (videoSender && videoTrack) {
+                    console.log(`[WebRTC] Peer ${senderId} solicitou keyframe (tela preta). Forçando IDR frame via replaceTrack...`);
+                    videoSender.replaceTrack(videoTrack).catch(() => {});
+                }
             }
         }
     } catch (err) {
@@ -1427,9 +1449,35 @@ function getOrCreatePeerConnection(peerId) {
         event.track.onended = () => {
             console.log('[WebRTC] Remote track ended:', peerId, event.track.kind);
             if (event.track.kind === 'video') {
+                if (peerObj._keyframeCheckInterval) {
+                    clearInterval(peerObj._keyframeCheckInterval);
+                    peerObj._keyframeCheckInterval = null;
+                }
                 removeStreamTile(peerId);
             }
         };
+
+        // Auto-recuperação de tela preta para Late-Joiners:
+        // Se a trilha de vídeo foi conectada mas o decodificador está em 0 pixels (esperando Frame-I),
+        // solicita ativamente um Keyframe ao transmissor via sinalização.
+        if (event.track.kind === 'video') {
+            if (peerObj._keyframeCheckInterval) clearInterval(peerObj._keyframeCheckInterval);
+            let checkAttempts = 0;
+            peerObj._keyframeCheckInterval = setInterval(() => {
+                checkAttempts++;
+                const v = peerObj.tileEl ? peerObj.tileEl.querySelector('video') : null;
+                if (!v || v.videoWidth > 0 || checkAttempts > 5) {
+                    clearInterval(peerObj._keyframeCheckInterval);
+                    peerObj._keyframeCheckInterval = null;
+                    return;
+                }
+                console.log(`[WebRTC] Vídeo anexado mas 0 frames decodificados (videoWidth: 0). Solicitando keyframe para ${peerId}...`);
+                socket.emit('signal', {
+                    targetId: peerId,
+                    signal: { type: 'request-keyframe' }
+                });
+            }, 1200);
+        }
 
         updateGridState();
     };
@@ -1660,14 +1708,17 @@ function addLocalTracksToPC(pc) {
     if (!pc || !localStream) return;
     const senders = pc.getSenders();
     localStream.getTracks().forEach(track => {
-        const existingSender = senders.find(s => s.track && (s.track.id === track.id || s.track.kind === track.kind));
+        // Reutiliza sender existente (ativo ou silenciado com track null) para evitar duplicar canais no SDP
+        const existingSender = senders.find(s => (s.track && (s.track.id === track.id || s.track.kind === track.kind)) || (!s.track && (s.dtlsTransport || (s._kind === track.kind))));
         if (existingSender) {
+            existingSender._kind = track.kind;
             if (existingSender.track !== track) {
                 try { existingSender.replaceTrack(track); } catch (e) {}
             }
             configureSenderParams(existingSender, track.kind);
         } else {
             const sender = pc.addTrack(track, localStream);
+            sender._kind = track.kind;
             configureSenderParams(sender, track.kind);
         }
     });
@@ -1710,21 +1761,37 @@ function getMaxBitrateForPeerCount(count = (typeof peers !== 'undefined' ? peers
 
     const peerCount = typeof count === 'number' ? count : 1;
     if (peerCount <= 1) return baseBitrate;
-    if (peerCount === 2) return Math.round(baseBitrate * 0.75);
-    return Math.round(baseBitrate * 0.58);
+    if (peerCount === 2) return Math.min(2500000, Math.round(baseBitrate * 0.45));
+    if (peerCount === 3) return Math.min(1800000, Math.round(baseBitrate * 0.30));
+    return Math.min(1200000, Math.round(baseBitrate / peerCount));
 }
 
 function configureSenderParams(sender, kind) {
     if (kind === 'video' && sender && typeof sender.getParameters === 'function') {
         try {
             const params = sender.getParameters();
-            params.degradationPreference = 'maintain-resolution';
+            // Balanced degradation allows dynamic downscaling (1080p -> 720p -> 480p) during network congestion
+            // preventing 0 FPS black screens when upload bandwidth fluctuates across multiple peers
+            params.degradationPreference = 'balanced';
             if (params.encodings && params.encodings[0]) {
                 params.encodings[0].maxBitrate = getMaxBitrateForPeerCount(typeof peers !== 'undefined' ? peers.size : 1, selectedVideoResolution, selectedVideoFps);
                 params.encodings[0].maxFramerate = Number(selectedVideoFps);
             }
             sender.setParameters(params).catch(() => {});
         } catch (e) {}
+    }
+}
+
+// Dynamically rebalances bitrate across all active peer senders whenever participants join or leave
+function updateSendersForActivePeers() {
+    if (!localStream) return;
+    for (const [peerId, peerObj] of peers.entries()) {
+        if (peerObj && peerObj.pc) {
+            const sender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+                configureSenderParams(sender, 'video');
+            }
+        }
     }
 }
 
@@ -1784,31 +1851,33 @@ function startQualityMonitor() {
                             let targetBitrate;
 
                             const peerCap = getMaxBitrateForPeerCount();
-                            if (availableBitrate < 1200000) {
-                                targetBitrate = 800000; // Emergency floor
+                            if (availableBitrate < 600000) {
+                                targetBitrate = 350000; // Emergency ultra-low floor (prevents black screen freezes)
+                            } else if (availableBitrate < 1200000) {
+                                targetBitrate = Math.max(350000, Math.floor(availableBitrate * 0.70));
                             } else if (availableBitrate < 2500000) {
-                                targetBitrate = Math.floor(availableBitrate * 0.65);
+                                targetBitrate = Math.floor(availableBitrate * 0.75);
                             } else if (availableBitrate < 5000000) {
-                                targetBitrate = Math.min(peerCap, Math.floor(availableBitrate * 0.75));
+                                targetBitrate = Math.min(peerCap, Math.floor(availableBitrate * 0.80));
                             } else {
                                 targetBitrate = peerCap; // Cap dinâmico por contagem de espectadores
                             }
 
                             // Auto-throttle framerate to 30fps under critical bottleneck to prevent freezes
-                            if (availableBitrate < 1400000 || qualityLimitation === 'cpu') {
+                            if (availableBitrate < 1000000 || qualityLimitation === 'cpu') {
                                 if (params.encodings[0].maxFramerate !== 30) {
                                     params.encodings[0].maxFramerate = 30;
                                     console.log(`[QoS] ${peerId.slice(0,6)}: Throttled to 30 FPS due to ${qualityLimitation === 'cpu' ? 'CPU' : 'network'}`);
                                 }
-                            } else if (availableBitrate >= 3500000 && contentHintMode === 'motion') {
-                                if (params.encodings[0].maxFramerate !== 60) {
-                                    params.encodings[0].maxFramerate = 60;
+                            } else if (availableBitrate >= 3000000 && contentHintMode === 'motion') {
+                                if (params.encodings[0].maxFramerate !== Number(selectedVideoFps)) {
+                                    params.encodings[0].maxFramerate = Number(selectedVideoFps);
                                 }
                             }
 
                             // Smooth ramp
                             const smoothed = Math.floor(current + (targetBitrate - current) * 0.3);
-                            const clamped = Math.max(800000, Math.min(6000000, smoothed));
+                            const clamped = Math.max(350000, Math.min(peerCap, smoothed));
 
                             if (Math.abs(clamped - current) > 100000) {
                                 params.encodings[0].maxBitrate = clamped;
@@ -2402,7 +2471,7 @@ function stopScreenShare() {
         if (peerObj && peerObj.pc) {
             peerObj.pc.getSenders().forEach(sender => {
                 try {
-                    peerObj.pc.removeTrack(sender);
+                    sender.replaceTrack(null);
                 } catch (e) {}
             });
             // Renegotiate so peers drop the remote tile cleanly
@@ -2445,6 +2514,19 @@ function createStreamTile(id, stream, labelText, isMuted) {
         video.muted = false;
     }
     video.srcObject = stream;
+
+    // Autoplay fallback: if unmuted playback is blocked by browser policy, fallback to muted to render frames immediately
+    const initialPlay = video.play();
+    if (initialPlay !== undefined) {
+        initialPlay.catch(() => {
+            if (!video.muted) {
+                video.muted = true;
+                video.setAttribute('muted', '');
+                video.play().catch(() => {});
+                showTapToUnmuteBadge(tile, video);
+            }
+        });
+    }
 
     // Tile Header Badge (Live + Name)
     const headerBadge = document.createElement('div');

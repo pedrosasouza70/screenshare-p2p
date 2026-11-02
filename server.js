@@ -112,7 +112,8 @@ function isValidSignal(signal) {
     if (!isPlainObject(signal)) return false;
     const isSdp = typeof signal.type === 'string' && (signal.type === 'offer' || signal.type === 'answer') && typeof signal.sdp === 'string';
     const isIce = Boolean(signal.candidate || signal.sdpMid !== undefined || signal.sdpMLineIndex !== undefined);
-    return isSdp || isIce;
+    const isKeyframeReq = signal.type === 'request-keyframe';
+    return isSdp || isIce || isKeyframeReq;
 }
 
 function checkRateLimit(socket, eventName, windowMs = 1000) {

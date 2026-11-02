@@ -9,6 +9,7 @@ function loadAppHelpers() {
 
     const getVideoConstraintsMatch = appJs.match(/function\s+getVideoConstraints\s*\([\s\S]*?\n\}/);
     const getMaxBitrateMatch = appJs.match(/function\s+getMaxBitrateForPeerCount\s*\([\s\S]*?\n\}/);
+    const configureSenderParamsMatch = appJs.match(/function\s+configureSenderParams\s*\([\s\S]*?\n\}/);
 
     const helpers = {};
     const sandbox = {
@@ -26,6 +27,12 @@ function loadAppHelpers() {
     if (getMaxBitrateMatch) {
         try {
             helpers.getMaxBitrateForPeerCount = vm.runInContext(`(${getMaxBitrateMatch[0]})`, sandbox);
+            sandbox.getMaxBitrateForPeerCount = helpers.getMaxBitrateForPeerCount;
+        } catch (_) {}
+    }
+    if (configureSenderParamsMatch) {
+        try {
+            helpers.configureSenderParams = vm.runInContext(`(${configureSenderParamsMatch[0]})`, sandbox);
         } catch (_) {}
     }
 
@@ -119,6 +126,30 @@ async function runTests() {
         console.log('\x1b[32mPASSOU\x1b[0m');
     } else {
         console.log('\x1b[31mFALHOU (seletores de resolução ou FPS ausentes no index.html)\x1b[0m');
+        failures++;
+    }
+
+    // Teste 4: Alocação multi-peer com degradação balanced e teto de upload seguro
+    process.stdout.write('  [Teste] T4: Alocação de banda multi-peer e degradationPreference=balanced ... ');
+    try {
+        const b2Peers = helpers.getMaxBitrateForPeerCount(2, '1080p', 60);
+        const b3Peers = helpers.getMaxBitrateForPeerCount(3, '1080p', 60);
+
+        assert(b2Peers <= 2500000, `Bitrate para 2 peers (${b2Peers}) deve ser <= 2.5 Mbps para não saturar upload`);
+        assert(b3Peers <= 1800000, `Bitrate para 3 peers (${b3Peers}) deve ser <= 1.8 Mbps`);
+        assert(2 * b2Peers <= 5500000, 'Total upload para 2 peers deve ser <= 5.5 Mbps');
+        assert(3 * b3Peers <= 5500000, 'Total upload para 3 peers deve ser <= 5.5 Mbps');
+
+        const mockSender = {
+            getParameters: () => ({ encodings: [{}] }),
+            setParameters: async (p) => { mockSender.appliedParams = p; }
+        };
+        helpers.configureSenderParams(mockSender, 'video');
+        assert.strictEqual(mockSender.appliedParams.degradationPreference, 'balanced', 'degradationPreference deve ser balanced para evitar telas pretas');
+
+        console.log('\x1b[32mPASSOU\x1b[0m');
+    } catch (err) {
+        console.log(`\x1b[31mFALHOU (${err.message})\x1b[0m`);
         failures++;
     }
 
